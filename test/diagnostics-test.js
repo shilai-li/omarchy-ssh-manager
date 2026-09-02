@@ -258,4 +258,40 @@ check("~ is put back the way the config file writes it", () => {
   ok(D.samePath("~/.ssh/id", "/home/u/.ssh/id", HOME))
 })
 
+// ------------------------------------- what the file helpers said they did
+
+check("the file helpers' records are read into one answer", () => {
+  const ok1 = D.parseIoStatus("S\tok\nD\tabc123\nV\t18:5216:1788\n")
+  eq(ok1.state, "ok")
+  eq(ok1.digest, "abc123")
+  eq(ok1.identity, "18:5216:1788")
+
+  const refused = D.parseIoStatus("S\trejected\nR\t/x is a symbolic link\nD\t-\n")
+  eq(refused.state, "rejected")
+  eq(refused.reason, "/x is a symbolic link")
+})
+
+check("a helper that said nothing did not succeed", () => {
+  // A killed script, a script that is not there, a pipe that broke: none of
+  // those are a saved file, and reading silence as success is how a failed
+  // write gets reported as a good one.
+  eq(D.parseIoStatus("").state, "rejected")
+  eq(D.parseIoStatus("some noise with no records\n").state, "rejected")
+})
+
+// ------------------------------------------- names quoted back at the user
+
+check("a name is stripped of what would make it read as another name", () => {
+  eq(D.plainLabel("prod\u202edrawkcab"), "proddrawkcab", "no bidi overrides")
+  eq(D.plainLabel("two\nlines"), "two lines", "no control characters")
+  eq(D.plainLabel("  spaced   out  "), "spaced out")
+  eq(D.plainLabel("safe-host.example"), "safe-host.example", "an ordinary name is untouched")
+})
+
+check("a name long enough to push the dialog's buttons off is cut", () => {
+  const long = D.plainLabel("h".repeat(200))
+  eq(long.length, 64)
+  eq(long.slice(-1), "…", "and says it was cut")
+})
+
 report("Diagnostics")

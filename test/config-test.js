@@ -286,4 +286,21 @@ check("a Host line naming several patterns is found by any of them", () => {
   eq(result.text, "Host db1\n    HostName changed\n")
 })
 
+check("a length is counted in the bytes that reach the pipe, not characters", () => {
+  // bin/config-write.sh is told how many bytes to read before it reads them.
+  // Counting UTF-16 code units instead would leave a comment with an accent
+  // in it short by exactly as many bytes as it has accents, and the write
+  // would be refused — or worse, truncated.
+  eq(C.utf8Length(""), 0)
+  eq(C.utf8Length("Host a\n"), 7)
+  eq(C.utf8Length("# café\n"), 8)
+  eq(C.utf8Length("𝄞"), 4, "a surrogate pair is one four-byte character")
+})
+
+check("scan.sh's own notes come through the parse", () => {
+  const parsed = C.parseStream("F\t/x\nL\tHost a\nE\tstopped after 64 files\nE\tstopped after 64 files\n")
+  eq(parsed.notes, ["stopped after 64 files"], "said once, however often it is emitted")
+  eq(parsed.blocks.length, 1, "and the configuration around it still parses")
+})
+
 report("SshConfig")

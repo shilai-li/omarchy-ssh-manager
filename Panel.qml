@@ -37,12 +37,23 @@ Panel {
   readonly property string home: host ? host.home : ""
   readonly property string configPath: host ? host.configPath : ""
   readonly property string errorText: host ? host.errorText : ""
+  readonly property var notes: host ? host.notes : []
+
+  // A test asked for over the IPC socket arrives as a name sitting here,
+  // never as a connection. Nothing has touched the network yet when it does.
+  readonly property string probeRequest: host ? host.probeRequest : ""
 
   property string view: "list"
   property string filterText: ""
   property int selectedIndex: 0
   property bool cursorActive: true
-  property string removeTarget: ""
+  // What the confirmation dialog is asking about, if anything: { kind, name }.
+  // Two things raise it, and they are the two things that are not undoable.
+  // Removing a Host block rewrites the user's file. Testing opens a TCP
+  // connection and offers a key to whatever answers — the panel is where
+  // somebody is actually sitting, so the panel is where that gets agreed to,
+  // whether the request came from a keystroke or from the socket.
+  property var confirming: null
   property var editorFields: null
   property string editorOriginal: ""
 
@@ -74,6 +85,16 @@ Panel {
     if (agent.keys.length === 0) return "ssh-agent: no keys"
     return "ssh-agent: " + agent.keys.length + (agent.keys.length === 1 ? " key" : " keys")
   }
+
+  readonly property string confirmMessage: {
+    if (!root.confirming) return ""
+    var name = Diagnostics.plainLabel(root.confirming.name)
+    if (root.confirming.kind === "probe")
+      return "Test Host " + name + "? This connects to it and offers your key."
+    return "Remove Host " + name + " from " + Diagnostics.shortenPath(root.configPath, root.home) + "?"
+  }
+
+  readonly property string confirmAction: root.confirming && root.confirming.kind === "probe" ? "Test" : "Remove"
 
   readonly property string keyRail: {
     if (root.view === "editor") return "tab field   enter save   esc cancel"
@@ -113,12 +134,21 @@ Panel {
 
   // Closing on a details view and reopening should land on the list; a stale
   // editor holding half-typed fields would be worse.
-  onOpenedChanged: if (!root.opened) root.showList()
+  onOpenedChanged: {
+    if (root.opened) {
+      Qt.callLater(root.considerProbeRequest)
+      return
+    }
+    root.showList()
+    // A test that was asked for but never agreed to does not get to happen
+    // behind the user's back the next time the panel comes up.
+    if (root.host) root.host.clearProbeRequest()
+  }
 
   // ---- Views.
   function showList() {
     root.view = "list"
-    root.removeTarget = ""
+    root.cancelConfirm()
     root.editorFields = null
     Qt.callLater(function() { keys.forceActiveFocus() })
   }
@@ -183,16 +213,41 @@ Panel {
 
   function askRemove() {
     if (!root.currentHost) return
-    root.removeTarget = root.currentName
+    root.confirming = { kind: "remove", name: root.currentName }
   }
 
-  function confirmRemove() {
-    var name = root.removeTarget
-    root.removeTarget = ""
-    if (!root.host || name === "") return
-    root.host.removeHost(name)
+  function cancelConfirm() {
+    var pendingProbe = !!root.confirming && root.confirming.kind === "probe"
+    root.confirming = null
+    if (pendingProbe && root.host) root.host.clearProbeRequest()
+  }
+
+  function applyConfirm() {
+    if (!root.confirming) return
+    var request = root.confirming
+    root.confirming = null
+    if (!root.host || request.name === "") return
+
+    if (request.kind === "probe") {
+      root.host.confirmProbe()
+      return
+    }
+    root.host.removeHost(request.name)
     root.showList()
   }
+
+  // The panel has to be up before it can ask anything, and the request can
+  // arrive either way round — the socket sets the name and then opens the
+  // panel, and the panel can already be open when it does.
+  function considerProbeRequest() {
+    if (root.probeRequest === "" || !root.opened) return
+    if (root.confirming) return
+    root.focusName(root.probeRequest)
+    root.showDetails()
+    root.confirming = { kind: "probe", name: root.probeRequest }
+  }
+
+  onProbeRequestChanged: Qt.callLater(root.considerProbeRequest)
 
   function setFilter(text) {
     root.filterText = text
@@ -223,7 +278,7 @@ Panel {
   //      through to whatever has focus, which is how the editor's text fields
   //      keep working while this item still has Keys.priority.
   function handleKey(event) {
-    if (root.removeTarget !== "") return confirmDialog.handleKey(event)
+    if (root.confirming) return confirmDialog.handleKey(event)
     if (root.view === "editor") return false
 
     var ctrl = (event.modifiers & Qt.ControlModifier) !== 0
@@ -349,7 +404,7 @@ Panel {
       Text {
         width: parent.width
         textFormat: Text.PlainText
-        text: row.modelData ? row.modelData.name : ""
+        text: row.modelData ? Diagnostics.plainLabel(row.modelData.name, 96) : ""
         color: root.contentForeground
         font.family: root.contentFontFamily
         font.pixelSize: Style.font.body
@@ -555,6 +610,21 @@ Panel {
           wrapMode: Text.WordWrap
         }
 
+        // When bin/scan.sh stops early — a cycle of Includes, a file it would
+        // not open, a ceiling reached — the list below is partial, and a host
+        // that is missing because of that looks exactly like one that was
+        // never configured. Say so rather than let it read as complete.
+        Text {
+          width: parent.width
+          visible: root.notes.length > 0 && root.view !== "editor"
+          textFormat: Text.PlainText
+          text: Diagnostics.plainLabel(root.notes.join(" · "), 200)
+          color: Color.urgent
+          font.family: root.contentFontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
+        }
+
         Text {
           width: parent.width
           textFormat: Text.PlainText
@@ -566,23 +636,27 @@ Panel {
         }
       }
 
-      // Removing a Host block rewrites the user's file, so it asks first.
+      // Both things worth asking about, in one dialog. The name in the
+      // question goes through plainLabel first: it is the user's own text out
+      // of their config, and a name carrying a bidi override or a newline can
+      // make this sentence read on screen as a different sentence than the
+      // one being agreed to.
       ConfirmDialog {
         id: confirmDialog
         anchors.fill: parent
-        opened: root.removeTarget !== ""
-        message: "Remove Host " + root.removeTarget + " from " + Diagnostics.shortenPath(root.configPath, root.home) + "?"
-        confirmText: "Remove"
+        opened: root.confirming !== null
+        message: root.confirmMessage
+        confirmText: root.confirmAction
         background: Color.popups.background
         foreground: root.contentForeground
         selectedText: root.accentColor
         fontFamily: root.contentFontFamily
         onCanceled: {
-          root.removeTarget = ""
+          root.cancelConfirm()
           Qt.callLater(function() { keys.forceActiveFocus() })
         }
         onConfirmed: {
-          root.confirmRemove()
+          root.applyConfirm()
           Qt.callLater(function() { keys.forceActiveFocus() })
         }
       }

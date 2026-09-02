@@ -42,6 +42,70 @@ function records(text) {
   return out
 }
 
+// --------------------------------------------- what the file helpers reported
+
+// bin/config-read.sh and bin/config-write.sh answer in the same four records:
+// what happened, why when it went wrong, the digest of the bytes, and a cheap
+// identity for noticing that something else has edited the file since.
+//
+// The digest is the version an edit was made against. A write hands it back,
+// and a write whose digest no longer matches what is on disk is refused
+// rather than applied: the file belongs to the user, and something else
+// having edited it is a reason to reload, never a reason to overwrite.
+function parseIoStatus(text) {
+  var result = { state: "", reason: "", digest: "", identity: "" }
+  var list = records(text)
+
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].kind === "S") result.state = trim(list[i].payload)
+    else if (list[i].kind === "R") result.reason = trim(list[i].payload)
+    else if (list[i].kind === "D") result.digest = trim(list[i].payload)
+    else if (list[i].kind === "V") result.identity = trim(list[i].payload)
+  }
+
+  // A helper that said nothing at all did not succeed, whatever else happened
+  // to it. Treating silence as success is how a failed write gets reported as
+  // a saved one.
+  if (result.state === "") {
+    result.state = "rejected"
+    if (result.reason === "") result.reason = "the helper returned nothing"
+  }
+  return result
+}
+
+// A value out of the config, made safe to put in a sentence.
+//
+// Host names are the user's own text, and this plugin quotes them back —
+// most sharply in the removal confirmation, which is the one place a misread
+// name costs somebody a block of their file. Control characters and the
+// Unicode bidi overrides can make a line on screen read as something other
+// than what it says, so they come out, and a name long enough to push the
+// dialog's buttons off the card is cut.
+function plainLabel(value, max) {
+  var text = String(value === undefined || value === null ? "" : value)
+  var limit = max === undefined ? 64 : max
+  var out = ""
+
+  for (var i = 0; i < text.length; i++) {
+    var code = text.charCodeAt(i)
+    if (code < 32 || code === 127 || (code >= 128 && code <= 159)) {
+      out += " "
+      continue
+    }
+    // Zero-width and directional formatting: invisible on their own, and able
+    // to reorder everything around them.
+    if (code >= 0x200b && code <= 0x200f) continue
+    if (code >= 0x202a && code <= 0x202e) continue
+    if (code >= 0x2066 && code <= 0x2069) continue
+    if (code === 0xfeff || (code >= 0xfff9 && code <= 0xfffb)) continue
+    out += text.charAt(i)
+  }
+
+  out = trim(out.replace(/\s+/g, " "))
+  if (out.length > limit) out = out.slice(0, limit > 0 ? limit - 1 : 0) + "…"
+  return out
+}
+
 // ------------------------------------------------------------- ssh -G output
 
 // `ssh -G` prints one lowercase keyword per line, and repeats a few of them
@@ -462,6 +526,8 @@ if (typeof module !== "undefined" && module.exports) {
     STATE_UNKNOWN: STATE_UNKNOWN,
     glyphFor: glyphFor,
     dotFor: dotFor,
+    parseIoStatus: parseIoStatus,
+    plainLabel: plainLabel,
     parseEffective: parseEffective,
     effectiveValue: effectiveValue,
     effectiveList: effectiveList,

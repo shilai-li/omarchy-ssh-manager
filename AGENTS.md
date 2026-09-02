@@ -26,8 +26,24 @@ Non-negotiables:
   private key, never pass a password to anything.
 - **The file is the user's.** An edit rewrites the lines it must and copies
   every other byte through. Comments, unmanaged keywords and ordering survive.
-- **No network without a keystroke.** Opening the panel runs `scan.sh` and
-  `ssh-add -l`; nothing touches the network until the user presses `t`.
+  An edit made against a copy that has since changed on disk is refused, not
+  applied: `config-write.sh` compares digests and the panel reloads.
+- **Nothing is opened by name and trusted.** `~/.ssh/config` and everything it
+  `Include`s live where anything running as the user can replace them. Every
+  open goes through `sshm_check_file` in `bin/guard.sh` first — no symlink on
+  the path, regular file, ours or root's, small enough. Never `mkdir -p`,
+  never a `chmod` by pathname after the fact, never a `FileView` on a path
+  outside our control.
+- **Nothing runs without a ceiling.** Bytes, lines, line length, file count,
+  `Include` depth, wall-clock, and a deadline that kills the whole process
+  group. This runs inside a shell that stays up for the length of a login
+  session; unbounded here means unbounded for days.
+- **The socket is not the user.** Everything reachable over IPC takes only an
+  exact, current, non-wildcard alias, `status` says as little as it can get
+  away with, and the one action that touches the network asks in the panel.
+- **No network without a gesture.** Opening the panel runs `scan.sh` and
+  `agent.sh`; nothing touches the network until the user presses `t` or
+  confirms the dialog a socket request raised.
 - **Themed, never styled.** Zero hex literals, zero raw pixel sizes — only
   `Color.*` and `Style.*`.
 - **Minimal is the feature.** No password storage, no SFTP, no SCP, no remote
@@ -36,17 +52,21 @@ Non-negotiables:
 ## Layout
 
 ```
-manifest.json      one kind, no settings
-BarWidget.qml      owns the config text, the processes, the writes, IPC
-Panel.qml          list + filter + key routing + the remove confirmation
-Details.qml        one host in full (presentation only)
-Editor.qml         the five-field form (presentation only)
-SshConfig.js       pure: parse the include stream, edit one file's text
-Diagnostics.js     pure: read ssh's answers, roll them into findings
-bin/scan.sh        the config as ssh reads it, Includes expanded in place
-bin/effective.sh   ssh -G, plus which identity files exist and their fingerprints
-bin/probe.sh       TCP reachability and authentication, without a session
-test/test.sh       everything, under plain node
+manifest.json         one kind, no settings
+BarWidget.qml         owns the config text, the processes, the writes, IPC
+Panel.qml             list + filter + key routing + the one confirmation dialog
+Details.qml           one host in full (presentation only)
+Editor.qml            the five-field form (presentation only)
+SshConfig.js          pure: parse the include stream, edit one file's text
+Diagnostics.js        pure: read ssh's answers, roll them into findings
+bin/guard.sh          sourced by all of them: path checks, ceilings, deadlines
+bin/config-read.sh    ~/.ssh/config, if it is safe to read, plus its digest
+bin/config-write.sh   replace it as a 0600 transaction, against that digest
+bin/scan.sh           the config as ssh reads it, Includes expanded in place
+bin/effective.sh      ssh -G, plus which identity files exist and their fingerprints
+bin/probe.sh          TCP reachability and authentication, without a session
+bin/agent.sh          ssh-add -l, bounded, with its exit status intact
+test/test.sh          everything, under plain node
 ```
 
 The `.js` files stay **Qt- and locale-free** so the suite runs under `node`.
@@ -95,9 +115,38 @@ surgery is really judged on, and a test asserts it against a realistic file.
 obtains, so an entry appended after `Host *` loses every keyword that block
 sets. `insertionIndex` is not a cosmetic choice.
 
-**A FileView does not report its own writes.** `watchChanges` fires for
-external edits only, so the rescan (and the `chmod 600`) hang off the `saved`
-signal. Hanging them off `setText` returning would race the write.
+**There is no FileView, on purpose.** A `FileView` reads the path it is given
+before anything gets to say whether that path is a file worth opening, which is
+the whole problem with `~/.ssh/config`. Reads go through `config-read.sh` and
+come back as bytes on stdout plus `S/R/D/V` records on stderr; writes go through
+`config-write.sh` with the new text length-prefixed on stdin. `watchChanges` is
+replaced by a `--stat` poll that runs only while the panel is open and reloads
+when the `size:inode:mtime` is not the one we last read.
+
+**The digest is the version.** `configDigest` is what the copy in memory was
+read at, and every write is made against it. An empty `configDigest` means the
+file could not be read, and a write is then refused outright — writing on top of
+something we never saw is how an edit eats a file. A `conflict` back from
+`config-write.sh` is not an error to retry through; the other writer wins.
+
+**The length prefix is not decoration.** QML holds the write pipe open for the
+life of the session, so a helper waiting for end-of-file waits forever. The
+count is UTF-8 bytes (`SshConfig.utf8Length`), because that is what Qt puts on
+the pipe — not JavaScript's UTF-16 code units. And it goes over stdin rather
+than argv because `/proc/<pid>/cmdline` is world-readable.
+
+**Everything runs through `/usr/bin/bash` with a fixed PATH.** `root.script()`
+builds every command, `trustedEnv` sets `PATH=/usr/bin:/bin`, and `guard.sh`
+sets the same PATH again for anything run by hand. The one exception is the
+terminal launched by `connectTo`, which resolves its three binaries through the
+trusted PATH and then hands the user's own environment to the terminal — their
+PATH is theirs to have inside their own shell, it just does not get to decide
+what `ssh` means here.
+
+**One dialog, two questions.** `Panel.confirming` is `{ kind, name }` for both
+the removal and an IPC-requested test. A keystroke test runs immediately — the
+keystroke *is* the gesture — but a name arriving on the socket raises the panel
+and asks. A request that is never agreed to is cleared when the panel closes.
 
 **Unknown is a state.** An untested host is `–`, not `✓`. `parseProbe` sets
 `tested` only when a record actually arrived, and every checklist row
@@ -183,7 +232,11 @@ widget silently fails to appear.
    network, no `sudo`, no writes anywhere else, ever.
 4. Never weaken an ssh option to make a test pass. If a probe cannot answer
    safely, it reports `unknown`.
-5. Before declaring done: `omarchy plugin validate` clean, qmllint categories
+5. Any new open, spawn or capture goes through `bin/guard.sh`. If a new script
+   needs a ceiling that is not there, add the constant next to the others
+   rather than inventing a local one, and do not make ceilings settable from
+   the environment.
+6. Before declaring done: `omarchy plugin validate` clean, qmllint categories
    match a built-in, `bash test/test.sh` green, add-edit-remove leaves a real
    `~/.ssh/config` byte-identical, the panel opens on a machine with no
    `~/.ssh/config` at all, and `t` on an unreachable host reports it without

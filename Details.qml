@@ -99,7 +99,7 @@ Item {
     Text {
       width: parent.width
       textFormat: Text.PlainText
-      text: root.host ? root.host.name : ""
+      text: root.host ? Diagnostics.plainLabel(root.host.name, 96) : ""
       color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.subtitle

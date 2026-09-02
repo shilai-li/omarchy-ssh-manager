@@ -20,8 +20,16 @@
 # nothing is echoed, and no ssh option that weakens host key checking is
 # passed — an unknown host key is a finding, not something to accept
 # silently.
+#
+# This is the only thing in the plugin that touches the network, so it is also
+# the one that has to be certain it ends. Every ssh here runs in its own
+# process group under a deadline that kills the group, not just the leader: a
+# ProxyCommand or ProxyJump helper outliving the ssh that spawned it would go
+# on holding a pipe into a shell that runs for days.
 
 set -u
+set -o pipefail
+. "${BASH_SOURCE[0]%/*}/guard.sh"
 
 host=${1:-}
 [ -n "$host" ] || exit 0
@@ -29,9 +37,16 @@ host=${1:-}
 # See effective.sh: -F is how a caller points ssh at a config file other than
 # the one it would find on its own. Omitted in normal use.
 ssh_args=()
-[ -n "${2:-}" ] && ssh_args=(-F "$2")
+if [ -n "${2:-}" ]; then
+  sshm_check_file "$2" || {
+    printf 'T\tunknown\nA\terror\nM\t%s\n' "$sshm_reason"
+    exit 0
+  }
+  ssh_args=(-F "$2")
+fi
 
-config=$(ssh "${ssh_args[@]}" -G "$host" 2>/dev/null) || {
+config=$(sshm_run_bounded "$SSHM_TOOL_SECONDS" \
+  ssh "${ssh_args[@]}" -G "$host" 2>/dev/null | head -c "$SSHM_MAX_FILE_BYTES") || {
   printf 'T\tunknown\n'
   printf 'A\terror\n'
   printf 'M\tssh could not parse the configuration for this host\n'
@@ -48,21 +63,29 @@ if [ -n "${proxied:-}" ]; then
   printf 'T\tproxy\n'
 elif [ -z "${hostname:-}" ] || [ -z "${port:-}" ]; then
   printf 'T\tunknown\n'
-elif timeout 4 bash -c 'exec 3<>/dev/tcp/"$0"/"$1"' "$hostname" "$port" 2>/dev/null; then
-  printf 'T\tok\n'
 else
-  printf 'T\tfail\n'
+  case $port in
+    *[!0-9]*) printf 'T\tunknown\n' ;;
+    *)
+      if sshm_run_bounded "$SSHM_TCP_SECONDS" \
+          bash -c 'exec 3<>/dev/tcp/"$0"/"$1"' "$hostname" "$port" 2>/dev/null; then
+        printf 'T\tok\n'
+      else
+        printf 'T\tfail\n'
+      fi
+      ;;
+  esac
 fi
 
 # `true` is the cheapest possible remote command: it proves the key was
 # accepted and a shell ran, and leaves nothing behind.
-message=$(timeout 20 ssh "${ssh_args[@]}" \
+message=$(sshm_run_bounded "$SSHM_SSH_SECONDS" ssh "${ssh_args[@]}" \
   -o BatchMode=yes \
   -o ConnectTimeout=6 \
   -o PasswordAuthentication=no \
   -o KbdInteractiveAuthentication=no \
   -o LogLevel=ERROR \
-  "$host" true 2>&1)
+  "$host" true 2>&1 </dev/null | head -c "$SSHM_MAX_MESSAGE_BYTES")
 code=$?
 
 if [ "$code" -eq 0 ]; then
@@ -76,12 +99,12 @@ else
     *"Could not resolve"*|*"Connection timed out"*|*"Connection refused"*|*"No route to host"*|*"Network is unreachable"*|*"Operation timed out"*)
       printf 'A\tunreachable\n' ;;
     *)
-      # A timeout kill leaves no message at all; say so rather than showing
+      # A deadline kill leaves no message at all; say so rather than showing
       # the user an empty error.
-      [ "$code" -eq 124 ] && message=${message:-"timed out after 20s"}
+      [ "$code" -eq 124 ] && message=${message:-"timed out after ${SSHM_SSH_SECONDS}s"}
       printf 'A\terror\n' ;;
   esac
 fi
 
-[ -n "$message" ] && printf 'M\t%s\n' "$(printf '%s' "$message" | tr '\n' ' ')"
+[ -n "$message" ] && printf 'M\t%s\n' "$(printf '%s' "$message" | tr '\n\r\t' '   ')"
 exit 0

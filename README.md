@@ -27,7 +27,8 @@ Search hosts…
   where it would otherwise prompt. No password is read, stored, forwarded or
   cached — by design, not by policy.
 - **Your file stays your file.** Edits rewrite the lines they must and copy
-  every other line — comments included — through untouched.
+  every other line — comments included — through untouched, and an edit made
+  against a copy someone else has since changed is refused rather than applied.
 - **No Electron.** QML running inside the `omarchy-shell` process you are
   already running.
 - **Themed.** No hardcoded colors or sizes; it repaints itself when you run
@@ -153,7 +154,15 @@ value it obtains for each keyword, so an entry appended after `Host *` would
 silently lose every keyword that block sets — the most common way a
 hand-edited `ssh_config` stops doing what it looks like it does.
 
-Writes are atomic, and the file is left at mode `0600`.
+A save is a transaction. The new text is written to a fresh file in `~/.ssh` at
+mode `0600` *before* it holds anything, and renamed over the old one; a reader
+sees one version or the other and never a half-written file, and there is no
+moment where the new one is readable by anyone else. `~/.ssh` itself is created
+`0700` if it is not there, one directory at a time, and is checked before every
+write — not created with `mkdir -p`, which would follow a symlink anybody could
+have put on the way. If the file changed on disk between being read and being
+saved, the save is refused and the panel reloads: whoever edited it in the
+meantime keeps their edit.
 
 ---
 
@@ -183,9 +192,25 @@ reaches it, so the TCP check is skipped rather than failed.
 omarchy-shell shilai_li.ssh-manager toggle
 omarchy-shell shilai_li.ssh-manager refresh
 omarchy-shell shilai_li.ssh-manager connect <host>
-omarchy-shell shilai_li.ssh-manager test <host>
-omarchy-shell shilai_li.ssh-manager status    # JSON
+omarchy-shell shilai_li.ssh-manager test <host>    # opens the panel and asks
+omarchy-shell shilai_li.ssh-manager status         # JSON
 ```
+
+That socket is reachable by anything running as you, and unlike the panel there
+is nobody at a keyboard behind it, so it is deliberately narrower than the
+panel:
+
+- `connect` and `test` take only a `Host` alias that is in your config right
+  now, spelled exactly, and not a pattern. Neither will accept an arbitrary
+  destination.
+- `test` opens a TCP connection and offers a key to whatever answers, so it
+  does not do it on its own: it raises the panel on that host and asks. Press
+  `t` on a host yourself and it just runs — that keystroke *is* the answer.
+- `status` reports which aliases exist, how many hosts and files there are, and
+  whether an agent is running. It does not report hostnames, usernames, ports,
+  key paths, file paths, key fingerprints or agent key comments. An inventory of
+  where your infrastructure is and which keys open it is worth a great deal to
+  somebody who should not have it and very little to a shell script.
 
 A Hyprland bind:
 
@@ -193,16 +218,38 @@ A Hyprland bind:
 bindd = SUPER CTRL, S, SSH manager, exec, omarchy-shell shilai_li.ssh-manager toggle
 ```
 
-The three scripts in `bin/` are the whole backend and run fine on their own:
+The scripts in `bin/` are the whole backend and run fine on their own:
 
 ```bash
-bin/scan.sh ~/.ssh/config      # the config as ssh reads it, includes expanded
-bin/effective.sh myhost        # ssh -G, plus which identity files exist
-bin/probe.sh myhost            # TCP reachability and authentication
+bin/scan.sh ~/.ssh/config          # the config as ssh reads it, includes expanded
+bin/effective.sh myhost            # ssh -G, plus which identity files exist
+bin/probe.sh myhost                # TCP reachability and authentication
+bin/agent.sh                       # what the ssh-agent is holding
+bin/config-read.sh ~/.ssh/config   # the file, if it is safe to read
+bin/config-write.sh ~/.ssh/config <digest>   # replace it, against that digest
 ```
 
-Each takes an optional trailing config path (`-F`), which is how the test suite
-points them at a fixture instead of your real `~/.ssh`.
+`effective.sh` and `probe.sh` take an optional trailing config path (`-F`),
+which is how the test suite points them at a fixture instead of your real
+`~/.ssh`. `bin/guard.sh` is sourced by all of them and holds the two things
+none of them may get wrong: what has to be true about a path before it is
+opened, and the ceilings on how much any of them may read, spawn or spend.
+
+---
+
+## What it will not do
+
+`~/.ssh/config`, everything it `Include`s, and the socket this plugin listens
+on are all reachable by anything else running as you. It is written on that
+assumption.
+
+| | |
+|---|---|
+| Open a config file by name and trust it | Every path is checked before it is opened: not a symlink, no symlink on the way to it, a regular file rather than a FIFO or a device, owned by you or by root, and small enough to be a config. |
+| Read without a ceiling | Bytes, lines, line length, file count, `Include` depth and wall-clock all have a limit, and an `Include` cycle is not walked twice. Hitting a limit is a note in the panel saying the view is partial. |
+| Run without a deadline | Every helper is one of this plugin's scripts, started by an absolute `/usr/bin/bash` with a fixed `PATH`, in its own process group, under a deadline that kills the group — a `ProxyCommand` outliving the ssh that spawned it does not get to outlive the test. |
+| Resolve a tool through your `PATH` | `ssh`, `ssh-add`, `ssh-keygen`, `setsid` and the rest come from a fixed `/usr/bin:/bin`. Your terminal still gets your own environment when you connect. |
+| Touch the network without you | Opening the panel runs the config scan and `ssh-add -l`, and nothing else. A probe happens on a keystroke, or on a confirmation you clicked. |
 
 ---
 

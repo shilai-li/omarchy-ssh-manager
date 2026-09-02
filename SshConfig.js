@@ -52,7 +52,7 @@ function splitArgs(value) {
 // Parse the F/L record stream that bin/scan.sh prints: the whole include
 // chain, in ssh's reading order, with each line attributed to its file.
 function parseStream(text) {
-  var result = { files: [], blocks: [], includes: [] }
+  var result = { files: [], blocks: [], includes: [], notes: [] }
   var lines = String(text === undefined || text === null ? "" : text).split("\n")
   var file = ""
   var lineNumber = 0
@@ -76,6 +76,14 @@ function parseStream(text) {
       file = payload
       lineNumber = 0
       if (result.files.indexOf(file) < 0) result.files.push(file)
+      continue
+    }
+    // bin/scan.sh says so when it skipped a file or stopped early. The panel
+    // has to be able to tell the user the view is partial: a host that is
+    // missing because the scan gave up looks exactly like one that is not
+    // configured, and those are very different problems.
+    if (kind === "E") {
+      if (result.notes.indexOf(payload) < 0) result.notes.push(payload)
       continue
     }
     if (kind !== "L") continue
@@ -569,6 +577,36 @@ function collapseBlankRun(lines) {
   return out
 }
 
+// How many bytes this text becomes on the way to disk.
+//
+// bin/config-write.sh is told the length before it is sent the bytes, because
+// the QML process on the other end of that pipe stays open for the life of
+// the session and a helper waiting for end-of-file would wait forever. Qt
+// writes a string to a pipe as UTF-8, so the count has to be UTF-8 bytes and
+// not JavaScript's UTF-16 code units — one accented character in a comment is
+// enough for the difference to matter.
+function utf8Length(text) {
+  var value = String(text === undefined || text === null ? "" : text)
+  var bytes = 0
+
+  for (var i = 0; i < value.length; i++) {
+    var code = value.charCodeAt(i)
+    if (code < 0x80) {
+      bytes += 1
+    } else if (code < 0x800) {
+      bytes += 2
+    } else if (code >= 0xd800 && code <= 0xdbff && i + 1 < value.length
+               && value.charCodeAt(i + 1) >= 0xdc00 && value.charCodeAt(i + 1) <= 0xdfff) {
+      bytes += 4
+      i++
+    } else {
+      bytes += 3
+    }
+  }
+
+  return bytes
+}
+
 function endWithNewline(text) {
   var body = String(text)
   while (body.length > 0 && body.charAt(body.length - 1) === "\n") body = body.slice(0, -1)
@@ -613,6 +651,7 @@ if (typeof module !== "undefined" && module.exports) {
     findBlockRange: findBlockRange,
     insertionIndex: insertionIndex,
     renderBlock: renderBlock,
+    utf8Length: utf8Length,
     upsertHost: upsertHost,
     removeHost: removeHost,
     fieldsFor: fieldsFor

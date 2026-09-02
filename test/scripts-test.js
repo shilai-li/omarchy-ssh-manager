@@ -5,7 +5,7 @@
 // ~/.ssh — not by reading them. Nothing here connects to a host that
 // exists: every probe target is a name that cannot resolve.
 const { check, eq, ok, report } = require("./harness.js")
-const { execFileSync } = require("child_process")
+const { execFileSync, spawnSync } = require("child_process")
 const fs = require("fs")
 const os = require("os")
 const path = require("path")
@@ -27,6 +27,24 @@ function run(script, args, home) {
     timeout: 40000,
     env: Object.assign({}, process.env, { HOME: home })
   })
+}
+
+// The file scripts answer on two channels at once — bytes on stdout, records
+// on stderr — so they need both back, and neither may be allowed to throw on
+// a non-zero exit: refusing to read a file is an answer, not a crash.
+function runIo(script, args, home, input) {
+  const result = spawnSync("bash", [path.join(BIN, script)].concat(args), {
+    encoding: "utf8",
+    timeout: 40000,
+    input: input === undefined ? "" : input,
+    env: Object.assign({}, process.env, { HOME: home })
+  })
+  return { out: result.stdout, status: D.parseIoStatus(result.stderr + result.stdout) }
+}
+
+// What config-write.sh reads: the byte count, then the bytes.
+function framed(text) {
+  return C.utf8Length(text) + "\n" + text
 }
 
 // --------------------------------------------------------------- scan.sh
@@ -174,6 +192,193 @@ check("probe.sh answers rather than waiting for a human", () => {
     env: Object.assign({}, process.env, { HOME: home })
   })
   ok(out.indexOf("A\t") >= 0)
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+// ------------------------------------------------------- scan.sh's ceilings
+
+check("scan.sh does not follow a cycle of Includes round again", () => {
+  const home = sandbox()
+  const config = path.join(home, ".ssh", "config")
+  fs.writeFileSync(config, "Host a\nInclude loop.conf\n")
+  fs.writeFileSync(path.join(home, ".ssh", "loop.conf"), "Host b\nInclude config\n")
+
+  const parsed = C.parseStream(run("scan.sh", [config], home))
+  eq(parsed.blocks.map(b => b.criteria), ["a", "b"], "each file read once, in order")
+  ok(parsed.notes.join(" ").indexOf("cycle") >= 0, "and it says the cycle was not followed")
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+check("scan.sh stops at a ceiling rather than reading a config graph out", () => {
+  const home = sandbox()
+  const config = path.join(home, ".ssh", "config")
+  let text = ""
+  for (let i = 0; i < 200; i++) {
+    text += "Include conf.d/f" + i + ".conf\n"
+    fs.writeFileSync(path.join(home, ".ssh", "conf.d", "f" + i + ".conf"), "Host h" + i + "\n")
+  }
+  fs.writeFileSync(config, text)
+
+  const parsed = C.parseStream(run("scan.sh", [config], home))
+  ok(parsed.files.length <= 65, "it stopped well before the 200th file")
+  ok(parsed.notes.length > 0, "and said the configuration below is unread")
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+check("scan.sh will not open an included file it cannot vouch for", () => {
+  const home = sandbox()
+  const config = path.join(home, ".ssh", "config")
+  fs.writeFileSync(config, "Include conf.d/huge.conf\nHost after\n")
+  fs.writeFileSync(path.join(home, ".ssh", "conf.d", "huge.conf"), "x".repeat(2 * 1024 * 1024))
+
+  const parsed = C.parseStream(run("scan.sh", [config], home))
+  eq(parsed.blocks.map(b => b.criteria), ["after"], "the rest of the config still arrives")
+  ok(parsed.notes.join(" ").indexOf("larger than") >= 0, "and the skip is reported")
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+// --------------------------------------------------------- config-read.sh
+
+check("config-read.sh returns the file byte for byte, with a digest", () => {
+  const home = sandbox()
+  const config = path.join(home, ".ssh", "config")
+  const text = "Host a\n  User one\n# a comment with no trailing newline"
+  fs.writeFileSync(config, text)
+
+  const read = runIo("config-read.sh", [config], home)
+  eq(read.status.state, "ok")
+  eq(read.out, text, "not a line at a time, and nothing added or trimmed")
+  eq(read.status.digest,
+     require("crypto").createHash("sha256").update(text).digest("hex"),
+     "the digest is of exactly those bytes")
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+check("a missing ~/.ssh/config is a state, not a failure", () => {
+  const home = sandbox()
+  const read = runIo("config-read.sh", [path.join(home, ".ssh", "config")], home)
+  eq(read.status.state, "missing")
+  eq(read.out, "")
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+check("config-read.sh refuses a config that is a symlink somewhere else", () => {
+  const home = sandbox()
+  const config = path.join(home, ".ssh", "config")
+  fs.writeFileSync(path.join(home, "elsewhere"), "Host stolen\n")
+  fs.symlinkSync(path.join(home, "elsewhere"), config)
+
+  const read = runIo("config-read.sh", [config], home)
+  eq(read.status.state, "rejected")
+  eq(read.out, "", "and nothing of the file it pointed at came back")
+  ok(read.status.reason.indexOf("symbolic link") >= 0)
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+check("config-read.sh refuses a config that is a pipe, rather than waiting", () => {
+  const home = sandbox()
+  const config = path.join(home, ".ssh", "config")
+  execFileSync("mkfifo", [config])
+
+  // Nothing will ever write to this FIFO. An unguarded read never returns.
+  const read = runIo("config-read.sh", [config], home)
+  eq(read.status.state, "rejected")
+  ok(read.status.reason.indexOf("regular file") >= 0)
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+check("config-read.sh refuses a config too large to be one", () => {
+  const home = sandbox()
+  const config = path.join(home, ".ssh", "config")
+  fs.writeFileSync(config, "x".repeat(2 * 1024 * 1024))
+
+  const read = runIo("config-read.sh", [config], home)
+  eq(read.status.state, "rejected")
+  eq(read.out, "", "and none of it was read into the shell")
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+// -------------------------------------------------------- config-write.sh
+
+check("config-write.sh creates ~/.ssh at 0700 and the config at 0600", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ssh-manager-test-"))
+  const config = path.join(home, ".ssh", "config")
+  const text = "Host a\n  User one\n"
+
+  const write = runIo("config-write.sh", [config, "-"], home, framed(text))
+  eq(write.status.state, "ok")
+  eq(fs.readFileSync(config, "utf8"), text)
+  eq(fs.statSync(path.join(home, ".ssh")).mode & 0o777, 0o700)
+  eq(fs.statSync(config).mode & 0o777, 0o600, "0600 before it was published, not after")
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+check("an edit made against a file that has since changed is refused", () => {
+  const home = sandbox()
+  const config = path.join(home, ".ssh", "config")
+  fs.writeFileSync(config, "Host a\n")
+
+  const read = runIo("config-read.sh", [config], home)
+  fs.writeFileSync(config, "Host somebody-else-was-here\n")
+
+  const write = runIo("config-write.sh", [config, read.status.digest], home, framed("Host mine\n"))
+  eq(write.status.state, "conflict")
+  eq(fs.readFileSync(config, "utf8"), "Host somebody-else-was-here\n", "their edit stands")
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+check("config-write.sh writes the file, not what a symlink at its name points at", () => {
+  const home = sandbox()
+  const config = path.join(home, ".ssh", "config")
+  const target = path.join(home, "target")
+  fs.writeFileSync(target, "not ours\n")
+  fs.symlinkSync(target, config)
+
+  const write = runIo("config-write.sh", [config, "-"], home, framed("Host mine\n"))
+  eq(write.status.state, "rejected")
+  eq(fs.readFileSync(target, "utf8"), "not ours\n", "the file it pointed at is untouched")
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+check("config-write.sh leaves nothing behind when it refuses", () => {
+  const home = sandbox()
+  const config = path.join(home, ".ssh", "config")
+  fs.writeFileSync(config, "Host a\n")
+
+  runIo("config-write.sh", [config, "not-the-digest"], home, framed("Host mine\n"))
+  eq(fs.readdirSync(path.join(home, ".ssh")).filter(n => n.indexOf(".ssh-manager") === 0), [],
+     "no staging file survives a refusal")
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+check("a round trip through both scripts is byte-identical", () => {
+  const home = sandbox()
+  const config = path.join(home, ".ssh", "config")
+  const original = "# top\n\nHost a\n  User one\n\nHost *\n  ServerAliveInterval 30\n"
+  fs.writeFileSync(config, original)
+
+  const read = runIo("config-read.sh", [config], home)
+  const added = C.upsertHost(read.out, { Host: "tmp", HostName: "h", User: "", Port: "", IdentityFile: "" }, "")
+  const write = runIo("config-write.sh", [config, read.status.digest], home, framed(added.text))
+  eq(write.status.state, "ok")
+
+  const back = runIo("config-read.sh", [config], home)
+  const removed = C.removeHost(back.out, "tmp")
+  const final = runIo("config-write.sh", [config, back.status.digest], home, framed(removed.text))
+  eq(final.status.state, "ok")
+  eq(fs.readFileSync(config, "utf8"), original, "add then remove leaves the file it started as")
 
   fs.rmSync(home, { recursive: true, force: true })
 })
