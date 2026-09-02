@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+#
+# Test one SSH host without opening a session.
+#
+#   probe.sh <host> [config-file]
+#
+# Records, one per line, tab-separated:
+#   T ok|fail|proxy|unknown   TCP reachability of the effective hostname:port
+#   A ok|denied|hostkey|unreachable|error   what authentication did
+#   M <text>                  ssh's own message, when it had one
+#
+# Two things are being asked, and they answer different questions: a failed
+# TCP connect means the machine is not there, while a refused key means it is
+# there and does not want us.
+#
+# **No credential ever passes through this script.** BatchMode=yes plus
+# PasswordAuthentication=no and KbdInteractiveAuthentication=no mean ssh
+# fails where it would otherwise prompt, so a host that only takes passwords
+# is reported as "denied" rather than asked for one. Nothing is stored,
+# nothing is echoed, and no ssh option that weakens host key checking is
+# passed — an unknown host key is a finding, not something to accept
+# silently.
+
+set -u
+
+host=${1:-}
+[ -n "$host" ] || exit 0
+
+# See effective.sh: -F is how a caller points ssh at a config file other than
+# the one it would find on its own. Omitted in normal use.
+ssh_args=()
+[ -n "${2:-}" ] && ssh_args=(-F "$2")
+
+config=$(ssh "${ssh_args[@]}" -G "$host" 2>/dev/null) || {
+  printf 'T\tunknown\n'
+  printf 'A\terror\n'
+  printf 'M\tssh could not parse the configuration for this host\n'
+  exit 0
+}
+
+hostname=$(printf '%s\n' "$config" | awk '$1 == "hostname" { print $2; exit }')
+port=$(printf '%s\n' "$config" | awk '$1 == "port" { print $2; exit }')
+proxied=$(printf '%s\n' "$config" | awk '$1 == "proxyjump" || $1 == "proxycommand" { print "yes"; exit }')
+
+# A proxied host is not reachable from here by definition — the jump host
+# reaches it. Claiming otherwise would be a red cross on a working setup.
+if [ -n "${proxied:-}" ]; then
+  printf 'T\tproxy\n'
+elif [ -z "${hostname:-}" ] || [ -z "${port:-}" ]; then
+  printf 'T\tunknown\n'
+elif timeout 4 bash -c 'exec 3<>/dev/tcp/"$0"/"$1"' "$hostname" "$port" 2>/dev/null; then
+  printf 'T\tok\n'
+else
+  printf 'T\tfail\n'
+fi
+
+# `true` is the cheapest possible remote command: it proves the key was
+# accepted and a shell ran, and leaves nothing behind.
+message=$(timeout 20 ssh "${ssh_args[@]}" \
+  -o BatchMode=yes \
+  -o ConnectTimeout=6 \
+  -o PasswordAuthentication=no \
+  -o KbdInteractiveAuthentication=no \
+  -o LogLevel=ERROR \
+  "$host" true 2>&1)
+code=$?
+
+if [ "$code" -eq 0 ]; then
+  printf 'A\tok\n'
+else
+  case "$message" in
+    *"Permission denied"*|*"No supported authentication"*|*"Too many authentication failures"*)
+      printf 'A\tdenied\n' ;;
+    *"Host key verification failed"*|*"REMOTE HOST IDENTIFICATION HAS CHANGED"*|*"Host key for"*)
+      printf 'A\thostkey\n' ;;
+    *"Could not resolve"*|*"Connection timed out"*|*"Connection refused"*|*"No route to host"*|*"Network is unreachable"*|*"Operation timed out"*)
+      printf 'A\tunreachable\n' ;;
+    *)
+      # A timeout kill leaves no message at all; say so rather than showing
+      # the user an empty error.
+      [ "$code" -eq 124 ] && message=${message:-"timed out after 20s"}
+      printf 'A\terror\n' ;;
+  esac
+fi
+
+[ -n "$message" ] && printf 'M\t%s\n' "$(printf '%s' "$message" | tr '\n' ' ')"
+exit 0

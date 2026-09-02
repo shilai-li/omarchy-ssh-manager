@@ -1,0 +1,5 @@
+# Nothing here is generated. This file exists so a stray editor swap
+# or a test scratch file never lands in a plugin someone else installs.
+*~
+.*.sw?
+node_modules/

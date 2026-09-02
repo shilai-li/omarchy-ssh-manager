@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "shilai_li.ssh-manager",
+  "name": "SSH Manager",
+  "version": "0.1.0",
+  "author": "Shilai Li",
+  "license": "MIT",
+  "description": "Browse, diagnose and connect to the hosts in your ~/.ssh/config. Uses the system ssh client; never handles a password.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "SSH Manager",
+    "description": "Hosts from ~/.ssh/config, with reachability and key diagnostics",
+    "category": "Utilities",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {},
+    "schema": []
+  }
+}
