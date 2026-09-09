@@ -162,6 +162,26 @@ lives on `BarWidget.qml`; `Panel`, `Details` and `Editor` are read-outs that
 call back into it. A bar surface exists per monitor, so anything the panel
 owned would be state two monitors could disagree about.
 
+**`bar` is a facade, not the Bar.** What gets injected is a `PluginBarApi`
+(`shell/Ui/PluginBarApi.qml`): presentation state mirrored as plain properties,
+operations delegated through scoped callbacks. First-party panels get the real
+`Bar.qml` and can write its properties; a plugin cannot. Anything shared and
+mutable is exposed there **readonly** with a `setX()` beside it —
+`centerHoverRevealSuppressed` / `setCenterHoverRevealSuppressed()` is the one
+this plugin touches. Assigning to a readonly QML property throws a `TypeError`
+rather than failing quietly, and the throw takes out the rest of the calling
+function, so **call the setter and feature-test it with `typeof … ===
+"function"`**, never `"name" in bar` — the `in` check passes on a readonly
+property and tells you nothing.
+
+**Closing may not depend on anything.** `close()` hides first and does the rest
+after. The panel is a full-screen layer-shell surface holding keyboard focus:
+anything that throws ahead of `controller.hide()` strands the user behind a
+surface that eats every key and click, including the escape and the
+outside-click that would have dismissed it, and the bar reads as frozen.
+Omarchy 4.0.3 turned `centerHoverRevealSuppressed` readonly and did exactly
+that. Order the function so the release is unconditional.
+
 **Keys are handled by hand, not by `PanelKeyCatcher`.** Typing filters the
 list, and the catcher's `h j k l x` bindings would make half the alphabet
 impossible to type. `Panel.handleKey` returns `false` for anything it does not

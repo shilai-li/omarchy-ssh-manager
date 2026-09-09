@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "shilai_li.ssh-manager",
   "name": "SSH Manager",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "Shilai Li",
   "license": "MIT",
   "description": "Browse, diagnose and connect to the hosts in your ~/.ssh/config. Uses the system ssh client; never handles a password.",
