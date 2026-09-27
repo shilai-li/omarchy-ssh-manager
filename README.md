@@ -10,9 +10,9 @@ SSH Manager                                    ssh-agent: 1 key
 Search hosts…
 ──────────────────────────────────────────────────────────────
 ● omarchy                                              ~/.ssh/id_ed25519
-  shilai_li@192.168.10.175
+  shilai_li@192.168.10.175 · used 2 min ago
 ● server                                                    Authenticated
-  user@10.0.0.20
+  user@10.0.0.20 · used 3 h ago
 ✕ devbox                                                      Unreachable
   dev@example.com
 ──────────────────────────────────────────────────────────────
@@ -61,7 +61,8 @@ The widget lands on the right of the bar. Move it with `omarchy bar move`.
 omarchy plugin remove shilai_li.ssh-manager
 ```
 
-Nothing else to clean up: this plugin keeps no state of its own.
+Nothing else to clean up: the launch-history store is a `0600` file at
+`~/.local/state/ssh-manager/history.json` if you would rather start over.
 
 ---
 
@@ -69,10 +70,16 @@ Nothing else to clean up: this plugin keeps no state of its own.
 
 ### The list
 
-Every `Host` entry ssh reads, including the ones in `Include`d files, in the
-order ssh reads them. Wildcard entries (`Host *`) sort to the bottom and are
-marked as patterns — they are not somewhere to connect, but they are usually
-where a surprising value came from.
+Every `Host` entry ssh reads, including the ones in `Include`d files. The
+hosts you have launched sort to the top, most recent first, and remember it —
+each row shows when it was last launched ("used 2 min ago"). The ones never
+launched fall back to alphabetical order, so a host you have never been to
+still has a place to sit, and typing filters everything exactly as before.
+Wildcard entries (`Host *`) sort to the bottom and are marked as patterns —
+they are not somewhere to connect, but they are usually where a surprising
+value came from.
+
+Opening the panel puts the cursor on the host you used last.
 
 | Mark | |
 |---|---|
@@ -83,6 +90,12 @@ where a surprising value came from.
 
 Nothing is tested until you ask. Opening the panel makes no network
 connection.
+
+Launches are remembered in `~/.local/state/ssh-manager/history.json` - a
+`0600` file, so it is nobody else's to read. Only the last 50 launches are
+kept, a re-launched host moves to the front, and the only thing the store can
+do is reorder a list: a name in it that is not in your config is ignored on
+load, never connected to.
 
 | Key | |
 |---|---|
@@ -194,6 +207,7 @@ omarchy-shell shilai_li.ssh-manager refresh
 omarchy-shell shilai_li.ssh-manager connect <host>
 omarchy-shell shilai_li.ssh-manager test <host>    # opens the panel and asks
 omarchy-shell shilai_li.ssh-manager status         # JSON
+omarchy-shell shilai_li.ssh-manager recent         # launch history, newest first
 ```
 
 That socket is reachable by anything running as you, and unlike the panel there
@@ -227,6 +241,8 @@ bin/probe.sh myhost                # TCP reachability and authentication
 bin/agent.sh                       # what the ssh-agent is holding
 bin/config-read.sh ~/.ssh/config   # the file, if it is safe to read
 bin/config-write.sh ~/.ssh/config <digest>   # replace it, against that digest
+bin/history.sh add <store> <name>   # remember a launch, newest first
+bin/history.sh list <store>         # print the launch history
 ```
 
 `effective.sh` and `probe.sh` take an optional trailing config path (`-F`),

@@ -66,6 +66,7 @@ bin/scan.sh           the config as ssh reads it, Includes expanded in place
 bin/effective.sh      ssh -G, plus which identity files exist and their fingerprints
 bin/probe.sh          TCP reachability and authentication, without a session
 bin/agent.sh          ssh-add -l, bounded, with its exit status intact
+bin/history.sh        the launch-history store, guarded and 0600 like the rest
 test/test.sh          everything, under plain node
 ```
 
@@ -247,9 +248,14 @@ widget silently fails to appear.
 1. Read the real file before writing. `ssh_config(5)` and the shell's own
    panels answer most "how should this behave".
 2. No new dependencies. QML + Quickshell + the shell's singletons + OpenSSH.
-3. Plugins run unsandboxed. The only file this plugin may write is
-   `~/.ssh/config`, and only through `SshConfig.upsertHost`/`removeHost`. No
-   network, no `sudo`, no writes anywhere else, ever.
+3. Plugins run unsandboxed. Two files may be written, both through guarded
+   scripts and nothing else: `~/.ssh/config` via
+   `SshConfig.upsertHost`/`removeHost` only, and the launch-history store
+   `~/.local/state/ssh-manager/history.json` via `bin/history.sh`. The store
+   is a `0600` list of `{name, ts}` with a fixed ceiling; it exists only to
+   order the list, its names are re-vetted against the config on load, and it
+   is never a launch or write vector. No network, no `sudo`, no writes
+   anywhere else, ever.
 4. Never weaken an ssh option to make a test pass. If a probe cannot answer
    safely, it reports `unknown`.
 5. Any new open, spawn or capture goes through `bin/guard.sh`. If a new script

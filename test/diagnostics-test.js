@@ -294,4 +294,34 @@ check("a name long enough to push the dialog's buttons off is cut", () => {
   eq(long.slice(-1), "…", "and says it was cut")
 })
 
+// ------------------------------------------------------- launch history
+
+check("a launched host sorts above the rest, newest first", () => {
+  const hosts = [{ name: "b" }, { name: "a" }, { name: "c" }]
+  eq(D.orderHosts(hosts, { c: 100, b: 200 }).map(h => h.name), ["b", "c", "a"])
+  eq(D.orderHosts(hosts, { a: 5 }).map(h => h.name), ["a", "b", "c"], "used first, unused alphabetical")
+  eq(D.orderHosts(hosts).map(h => h.name), ["a", "b", "c"], "nothing used, alphabetical")
+  eq(D.orderHosts([{ name: "*", wildcard: true }, { name: "b" }, { name: "a" }], { b: 9 }).map(h => h.name),
+     ["b", "a", "*"])
+})
+
+check("launch history tells an entry from a poison value", () => {
+  eq(D.parseHistory(""), [])
+  eq(D.parseHistory("not json"), [])
+  eq(D.parseHistory("[{\"name\":1}]"), [])
+  eq(D.parseHistory("[{\"name\":\"a\",\"ts\":-5},{\"name\":\"b\",\"ts\":\"x\"}]"), [])
+  eq(D.parseHistory("[{\"name\":\"ok-host\",\"ts\":100}]").map(e => e.name), ["ok-host"])
+  eq(D.parseHistory("[{\"name\":\"bad name\",\"ts\":100}]"), [], "a compound name is not a launch")
+  const map = D.historyMap([{ name: "a", ts: 100 }, { name: "a", ts: 400 }, { name: "b", ts: 200 }])
+  eq(map.a, 400, "the newest launch wins")
+  eq(map.c, undefined, "a host that was never launched is absent")
+})
+
+check("relative time is a word even for an old date", () => {
+  eq(D.relativeTime("x"), "", "a broken input is silent")
+  ok(typeof D.relativeTime(0) === "string" && D.relativeTime(0) !== "")
+  const recent = D.relativeTime(Math.floor(Date.now() / 1000) - 120)
+  ok(/ ago$/.test(recent), "two minutes ago reads as a duration")
+})
+
 report("Diagnostics")
