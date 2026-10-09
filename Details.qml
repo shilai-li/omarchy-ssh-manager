@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Diagnostics.js" as Diagnostics
 
@@ -20,8 +21,8 @@ Item {
   property string home: ""
   property bool probing: false
 
-  property color foreground: Color.foreground
-  property color accentColor: Color.accent
+  property color foreground: Commons.Color.foreground
+  property color accentColor: Commons.Color.accent
   property string fontFamily: Style.font.family
 
   readonly property color dim: Qt.darker(foreground, 1.5)
@@ -47,8 +48,8 @@ Item {
 
   function colorFor(state) {
     if (state === Diagnostics.STATE_OK) return root.accentColor
-    if (state === Diagnostics.STATE_BAD) return Color.urgent
-    if (state === Diagnostics.STATE_WARN) return Color.urgent
+    if (state === Diagnostics.STATE_BAD) return Commons.Color.urgent
+    if (state === Diagnostics.STATE_WARN) return Commons.Color.urgent
     return root.dimmer
   }
 
@@ -171,7 +172,7 @@ Item {
       visible: root.plan.length === 0
       textFormat: Text.PlainText
       text: root.loaded ? "No usable key — nothing on disk, nothing in the agent." : "Asking ssh…"
-      color: root.plan.length === 0 && root.loaded ? Color.urgent : root.dim
+      color: root.plan.length === 0 && root.loaded ? Commons.Color.urgent : root.dim
       font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall
       wrapMode: Text.WordWrap
@@ -192,7 +193,7 @@ Item {
           width: Style.space(14)
           textFormat: Text.PlainText
           text: modelData.exists === false ? Diagnostics.glyphFor(Diagnostics.STATE_BAD) : Diagnostics.glyphFor(Diagnostics.STATE_OK)
-          color: modelData.exists === false ? Color.urgent : root.accentColor
+          color: modelData.exists === false ? Commons.Color.urgent : root.accentColor
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
         }
@@ -294,7 +295,7 @@ Item {
         width: column.width
         textFormat: Text.PlainText
         text: (modelData.level === Diagnostics.STATE_BAD ? "✗ " : "! ") + modelData.text
-        color: modelData.level === Diagnostics.STATE_BAD ? Color.urgent : root.dim
+        color: modelData.level === Diagnostics.STATE_BAD ? Commons.Color.urgent : root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         wrapMode: Text.WordWrap

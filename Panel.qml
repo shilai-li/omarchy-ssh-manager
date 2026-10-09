@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "SshConfig.js" as SshConfig
 import "Diagnostics.js" as Diagnostics
@@ -68,13 +69,13 @@ Panel {
   readonly property bool probing: !!host && host.probingHost === currentName && currentName !== ""
 
   // ---- Theme. Nothing here names a color; the palette does.
-  readonly property color contentForeground: bar ? bar.foreground : Color.foreground
+  readonly property color contentForeground: bar ? bar.foreground : Commons.Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property color dim: Qt.darker(contentForeground, 1.5)
   readonly property color dimmer: Qt.darker(contentForeground, 2.0)
-  readonly property color accentColor: Style.selectedStateColor(contentForeground, Color.accent)
-  readonly property color hoverFill: Style.hoverFillFor(contentForeground, Color.accent)
-  readonly property color selectedFill: Style.selectedFillFor(contentForeground, Color.accent)
+  readonly property color accentColor: Style.selectedStateColor(contentForeground, Commons.Color.accent)
+  readonly property color hoverFill: Style.hoverFillFor(contentForeground, Commons.Color.accent)
+  readonly property color selectedFill: Style.selectedFillFor(contentForeground, Commons.Color.accent)
 
   readonly property int rowHeight: Math.max(Style.space(38), Style.font.body + Style.font.caption + Style.space(16))
   readonly property int listHeight: Math.max(rowHeight, Math.min(rows.length * rowHeight, rowHeight * 7))
@@ -367,7 +368,7 @@ Panel {
     height: root.rowHeight
     hasCursor: root.cursorActive && root.selectedIndex === index
     foreground: root.contentForeground
-    accent: Color.accent
+    accent: Commons.Color.accent
     fill: root.hoverFill
     currentFill: root.selectedFill
 
@@ -400,8 +401,8 @@ Panel {
       text: Diagnostics.dotFor(row.state)
       color: {
         if (row.state === Diagnostics.STATE_OK) return root.accentColor
-        if (row.state === Diagnostics.STATE_BAD) return Color.urgent
-        if (row.state === Diagnostics.STATE_WARN) return Color.urgent
+        if (row.state === Diagnostics.STATE_BAD) return Commons.Color.urgent
+        if (row.state === Diagnostics.STATE_WARN) return Commons.Color.urgent
         return root.dimmer
       }
       font.family: root.contentFontFamily
@@ -450,7 +451,7 @@ Panel {
       text: root.host && root.host.probingHost === (row.modelData ? row.modelData.name : "")
         ? "testing…"
         : Diagnostics.hostDetail(row.modelData, row.probe, root.agent, root.home)
-      color: row.state === Diagnostics.STATE_BAD ? Color.urgent : root.dimmer
+      color: row.state === Diagnostics.STATE_BAD ? Commons.Color.urgent : root.dimmer
       font.family: root.contentFontFamily
       font.pixelSize: Style.font.caption
       elide: Text.ElideMiddle
@@ -503,7 +504,7 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             textFormat: Text.PlainText
             text: root.agentSummary
-            color: root.agent && root.agent.checked && !root.agent.running ? Color.urgent : root.dimmer
+            color: root.agent && root.agent.checked && !root.agent.running ? Commons.Color.urgent : root.dimmer
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
           }
@@ -619,7 +620,7 @@ Panel {
           visible: root.errorText !== "" && root.view !== "editor"
           textFormat: Text.PlainText
           text: root.errorText
-          color: Color.urgent
+          color: Commons.Color.urgent
           font.family: root.contentFontFamily
           font.pixelSize: Style.font.caption
           wrapMode: Text.WordWrap
@@ -634,7 +635,7 @@ Panel {
           visible: root.notes.length > 0 && root.view !== "editor"
           textFormat: Text.PlainText
           text: Diagnostics.plainLabel(root.notes.join(" · "), 200)
-          color: Color.urgent
+          color: Commons.Color.urgent
           font.family: root.contentFontFamily
           font.pixelSize: Style.font.caption
           wrapMode: Text.WordWrap
@@ -662,7 +663,7 @@ Panel {
         opened: root.confirming !== null
         message: root.confirmMessage
         confirmText: root.confirmAction
-        background: Color.popups.background
+        background: Commons.Color.popups.background
         foreground: root.contentForeground
         selectedText: root.accentColor
         fontFamily: root.contentFontFamily

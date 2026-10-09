@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Add or change one Host entry.
@@ -16,8 +17,8 @@ Item {
   property string originalName: ""
   property string errorText: ""
 
-  property color foreground: Color.foreground
-  property color accentColor: Color.accent
+  property color foreground: Commons.Color.foreground
+  property color accentColor: Commons.Color.accent
   property string fontFamily: Style.font.family
 
   readonly property color dim: Qt.darker(foreground, 1.5)
@@ -175,7 +176,7 @@ Item {
       visible: root.errorText !== ""
       textFormat: Text.PlainText
       text: root.errorText
-      color: Color.urgent
+      color: Commons.Color.urgent
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
       wrapMode: Text.WordWrap

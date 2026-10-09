@@ -45,7 +45,10 @@ Non-negotiables:
   `agent.sh`; nothing touches the network until the user presses `t` or
   confirms the dialog a socket request raised.
 - **Themed, never styled.** Zero hex literals, zero raw pixel sizes — only
-  `Color.*` and `Style.*`.
+  `Commons.Color.*` and `Style.*`. Qt 6.12 ships its own `Color` type, so a
+  bare `Color.urgent` resolves to nothing and fails silently: colors come back
+  undefined, and the panel throws on every frame. Import `qs.Commons as Commons`
+  beside `import qs.Commons`, as `docs/omarchy-shell.md` requires.
 - **Minimal is the feature.** No password storage, no SFTP, no SCP, no remote
   editing or monitoring, no embedded terminal. Ask before adding a surface.
 
@@ -192,10 +195,11 @@ still has `Keys.priority: Keys.BeforeItem`.
 
 | Do | Don't |
 |---|---|
-| `Color.foreground/.accent/.urgent/.popups.*` | any hex literal |
+| `Commons.Color.foreground/.accent/.urgent/.popups.*` | any hex literal |
 | `Style.space(12)`, `Style.font.caption…subtitle` | raw pixels, `pixelSize: 14` |
 | `Style.cornerRadius` (may be `0`), `CursorSurface` | always-rounded, hand-rolled hover fills |
-| `bar ? bar.foreground : Color.foreground` | assuming `bar` is set at construction |
+| `bar ? bar.foreground : Commons.Color.foreground` | assuming `bar` is set at construction |
+| `import qs.Commons as Commons` beside `import qs.Commons` | bare `Color.*` |
 | explicit `Keys.onTabPressed` handlers | `KeyNavigation`, which qmllint cannot check here |
 
 Comment *why*, not *what*, in full sentences — match the shell's habit of a few
