@@ -373,8 +373,9 @@ BarWidget {
     if ("hostWidget" in target) target.hostWidget = root
   }
 
-  readonly property real openPanelIndicatorWidth: button.labelWidth
-  readonly property real openPanelIndicatorHeight: Math.max(Style.space(10), Math.round(Style.bar.iconSlot * 0.55))
+  // Same glyph and button the shell's own icon widgets use: BarIconButton
+  // centers the ink optically, and the open-panel mark takes the shell's default.
+  readonly property string glyph: "󰢹"
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -542,14 +543,11 @@ BarWidget {
     function status(): string { return root.statusJson() }
   }
 
-  WidgetButton {
+  BarIconButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "󰢹"
-    active: root.opened
-    horizontalMargin: 8.75
-    verticalPadding: 8.75
+    text: root.glyph
     tooltipText: root.hostCount === 1 ? "1 SSH host" : root.hostCount + " SSH hosts"
 
     onPressed: function(b) { root.togglePanel() }
