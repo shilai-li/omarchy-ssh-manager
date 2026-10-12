@@ -473,17 +473,97 @@ function hostState(probe) {
   return STATE_BAD
 }
 
-// Concrete hosts in the order the files declare them, then the wildcard
-// blocks. A pattern is not somewhere to connect, but it is where a surprising
-// value usually comes from, so it belongs at the bottom of the list rather
-// than out of it.
-function orderHosts(hosts) {
+// ------------------------------------------------------- launch history
+
+// How many launches the store or the widget's own memory may hold. The file
+// helper enforces the same number; this is the widget-side ceiling so the
+// in-memory list and store cannot drift.
+var HISTORY_LIMIT = 50
+
+// The launch-history store as the file helper reports it: a JSON array of
+// {name, ts} entries, newest first. Anything that does not look like an entry
+// — a name that is not a plain alias, a timestamp that is not a sane number —
+// is dropped. The store is a preference used for sorting, never a launch
+// vector: a poison value here must cost nothing but the ordering it bought.
+function parseHistory(text) {
+  var value = trim(text || "")
+  if (value === "") return []
+  try { value = JSON.parse(value) } catch (e) { return [] }
+
+  var out = []
+  var now = Math.floor(Date.now() / 1000)
+  for (var i = 0; i < value.length; i++) {
+    var name = value[i] && value[i].name
+    var ts = value[i] && value[i].ts
+    if (typeof name !== "string" || !/^[A-Za-z0-9._-]+$/.test(name)) continue
+    if (typeof ts !== "number" || !isFinite(ts)) continue
+    if (ts < 0 || ts > now + 86400) continue
+    out.push({ name: name, ts: Math.floor(ts) })
+  }
+  return out
+}
+
+// The newest launch per alias, as a name → timestamp map. This is what the
+// list sorts by; both the newest and the absence of a launch matter, so the
+// map carries both states.
+function historyMap(history) {
+  var map = {}
+  for (var i = 0; i < (history || []).length; i++) {
+    var name = history[i].name
+    var ts = history[i].ts
+    if (map[name] === undefined || ts > map[name]) map[name] = ts
+  }
+  return map
+}
+
+function pad2(value) { return value < 10 ? "0" + value : "" + value }
+
+// The time since a launch, in words. Seconds is more than anyone needs and a
+// wall date is what the far end of the list deserves.
+function relativeTime(ts) {
+  if (typeof ts !== "number" || !isFinite(ts)) return ""
+  var delta = Math.floor(Date.now() / 1000) - ts
+  if (delta < 5) return "just now"
+  if (delta < 90) return delta + " s ago"
+  var m = Math.floor(delta / 60)
+  if (m < 60) return m + " min ago"
+  var h = Math.floor(m / 60)
+  if (h < 48) return h + " h ago"
+  var d = Math.floor(h / 24)
+  if (d < 30) return d + " d ago"
+  var date = new Date(ts * 1000)
+  var label = pad2(date.getMonth() + 1) + "-" + pad2(date.getDate())
+  if (date.getFullYear() !== new Date().getFullYear()) label = date.getFullYear() + "-" + label
+  return label
+}
+
+// Concrete hosts, newest launch first — a host that was launched yesterday
+// sorts above one that was not launched at all, and one launched ten minutes
+// ago sorts above both. The ones nobody launched fall back to alphabetical
+// order, so there is still a place to find a host you have never been to.
+// The wildcard blocks stay at the bottom, as they always were.
+function orderHosts(hosts, recency) {
+  var rec = recency || {}
   var concrete = []
   var patterns = []
   for (var i = 0; i < (hosts || []).length; i++) {
     if (hosts[i].wildcard) patterns.push(hosts[i])
     else concrete.push(hosts[i])
   }
+  concrete.sort(function(a, b) {
+    var at = rec[a.name]
+    var bt = rec[b.name]
+    var ah = typeof at === "number"
+    var bh = typeof bt === "number"
+    if (ah && !bh) return -1
+    if (!ah && bh) return 1
+    if (ah && bh && at !== bt) return bt - at
+    var an = a.name.toLowerCase()
+    var bn = b.name.toLowerCase()
+    if (an < bn) return -1
+    if (an > bn) return 1
+    return 0
+  })
   return concrete.concat(patterns)
 }
 
@@ -543,6 +623,10 @@ if (typeof module !== "undefined" && module.exports) {
     hostSubtitle: hostSubtitle,
     hostDetail: hostDetail,
     hostState: hostState,
+    HISTORY_LIMIT: HISTORY_LIMIT,
+    parseHistory: parseHistory,
+    historyMap: historyMap,
+    relativeTime: relativeTime,
     orderHosts: orderHosts,
     filterHosts: filterHosts,
     clampIndex: clampIndex,

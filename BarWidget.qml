@@ -38,6 +38,14 @@ BarWidget {
   readonly property string home: Quickshell.env("HOME")
   readonly property string configPath: home + "/.ssh/config"
 
+  // ---- Launch history. Which aliases were launched, newest first, kept so
+  //      the list can start with what was used last instead of the alphabet.
+  //      The store lives under the XDG state directory, guarded by
+  //      bin/history.sh like every other file this plugin touches.
+  readonly property string historyPath: root.home + "/.local/state/ssh-manager/history.json"
+  property var history: []
+  readonly property var recencyByName: Diagnostics.historyMap(root.history)
+
   // The scripts ship next to this file. Deriving the directory from the QML
   // URL keeps the plugin working wherever it is installed, rather than
   // hardcoding the id under ~/.config/omarchy/plugins.
@@ -210,6 +218,31 @@ BarWidget {
                                     host ? host.identityFiles : [], root.home)
   }
 
+  // ---- History. Loaded once at startup; a launch puts the alias at the
+  //      front of the in-memory list immediately (so the next open of the
+  //      panel is already ordered) and fires bin/history.sh to make it
+  //      permanent. The alias that gets here has already passed knownAlias,
+  //      so the store only ever sees a host that was real at launch time.
+  function loadHistory() {
+    if (!historyProc.running) historyProc.running = true
+  }
+
+  function applyHistory(text) {
+    root.history = Diagnostics.parseHistory(text)
+  }
+
+  function recordHistory(name) {
+    var next = [{ name: name, ts: Math.floor(Date.now() / 1000) }]
+    for (var i = 0; i < root.history.length; i++) {
+      if (root.history[i].name === name) continue
+      next.push(root.history[i])
+      if (next.length >= Diagnostics.HISTORY_LIMIT) break
+    }
+    root.history = next
+    historyAddProc.command = root.script("history.sh").concat(["add", root.historyPath, name])
+    historyAddProc.running = true
+  }
+
   // ---- Writing. Every edit is a whole-file replacement built by
   //      SshConfig.upsertHost/removeHost, which copy through every line they
   //      do not have to touch, and is published by bin/config-write.sh
@@ -290,7 +323,7 @@ BarWidget {
     + 'client=$(trusted ssh) || exit 1\n'
     + 'session=$(trusted setsid) || session=""\n'
     + 'app=$(trusted uwsm-app) || app=""\n'
-    + 'if [ -n "$app" ]; then set -- "$app" -- "$term" "$client" "$1"; else set -- "$term" "$client" "$1"; fi\n'
+    + 'if [ -n "$app" ]; then set -- "$app" -- "$term" --title="$1" "$client" "$1"; else set -- "$term" --title="$1" "$client" "$1"; fi\n'
     + 'if [ -n "$session" ]; then exec "$session" "$@"; fi\n'
     + 'exec "$@"'
 
@@ -298,6 +331,7 @@ BarWidget {
     var alias = root.knownAlias(name)
     if (alias === "") return false
     Quickshell.execDetached([root.shellBin, "-c", root.launchScript, "ssh-manager", alias])
+    root.recordHistory(alias)
     return true
   }
 
@@ -383,7 +417,10 @@ BarWidget {
   onBarChanged: injectPanel()
   onSettingsChanged: injectPanel()
 
-  Component.onCompleted: root.refresh()
+  Component.onCompleted: {
+    root.refresh()
+    root.loadHistory()
+  }
 
   // Nothing this widget started outlives it. A bar surface is torn down and
   // rebuilt on a monitor change, a theme reload or a plugin update, and a
@@ -396,6 +433,8 @@ BarWidget {
     agentProc.running = false
     effProc.running = false
     probeProc.running = false
+    historyProc.running = false
+    historyAddProc.running = false
   }
 
   // A helper that never comes back must not become a process that lives as
@@ -496,6 +535,22 @@ BarWidget {
     onExited: root.applyProbe(probeOut.text)
   }
 
+  Process {
+    id: historyProc
+    command: root.script("history.sh").concat(["list", root.historyPath])
+    environment: root.trustedEnv
+    stdout: StdioCollector { id: historyOut; waitForEnd: true }
+    onExited: root.applyHistory(historyOut.text)
+  }
+
+  // A launch is recorded fire-and-forget: the in-memory list is already
+  // updated, so a store that refused its write only means the ordering does
+  // not survive a restart, never that the launch was held up.
+  Process {
+    id: historyAddProc
+    environment: root.trustedEnv
+  }
+
   Deadline { proc: readProc; what: "Reading " + root.configPath }
   Deadline { proc: writeProc; what: "Writing " + root.configPath }
   Deadline { proc: statProc; what: "Checking " + root.configPath }
@@ -541,6 +596,7 @@ BarWidget {
     }
 
     function status(): string { return root.statusJson() }
+    function recent(): string { return JSON.stringify(root.history) }
   }
 
   BarIconButton {

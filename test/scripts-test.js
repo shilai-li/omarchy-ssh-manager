@@ -383,4 +383,58 @@ check("a round trip through both scripts is byte-identical", () => {
   fs.rmSync(home, { recursive: true, force: true })
 })
 
+// ------------------------------------------------------------ history.sh
+
+check("history.sh keeps the newest launch first and never duplicates", () => {
+  const home = sandbox()
+  const store = path.join(home, ".local", "state", "ssh-manager", "history.json")
+
+  eq(run("history.sh", ["add", store, "alpha"], home).trim(), "", "add is silent")
+  eq(D.parseHistory(run("history.sh", ["list", store], home)).length, 1)
+
+  run("history.sh", ["add", store, "beta"], home)
+  run("history.sh", ["add", store, "gamma"], home)
+  eq(D.parseHistory(run("history.sh", ["list", store], home)).map(e => e.name),
+     ["gamma", "beta", "alpha"])
+
+  run("history.sh", ["add", store, "beta"], home)
+  eq(D.parseHistory(run("history.sh", ["list", store], home)).map(e => e.name),
+     ["beta", "gamma", "alpha"], "re-launching moves a host to the front, once")
+
+  eq(fs.statSync(store).mode & 0o077, 0, "the store is never anyone else's to read")
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+check("history.sh caps the list and drops everything that is not an entry", () => {
+  const home = sandbox()
+  const store = path.join(home, ".local", "state", "ssh-manager", "history.json")
+
+  for (let i = 0; i < 60; i++) run("history.sh", ["add", store, "h" + String(i)], home)
+  const capped = D.parseHistory(run("history.sh", ["list", store], home))
+  eq(capped.length, D.HISTORY_LIMIT)
+  eq(capped[0].name, "h59", "the newest launch sits at the top")
+
+  fs.writeFileSync(store, "[\n  {\"name\":\"poison name\",\"ts\":1},\n  {\"name\":\"ok\",\"ts\":2}\n]\n")
+  run("history.sh", ["add", store, "fresh"], home)
+  eq(D.parseHistory(run("history.sh", ["list", store], home)).map(e => e.name),
+     ["fresh", "ok"], "a valueless line is rewritten out of the store")
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+check("history.sh refuses a name the Host line could not hold", () => {
+  const home = sandbox()
+  const store = path.join(home, ".local", "state", "ssh-manager", "history.json")
+
+  for (const bad of ["", "bad name", "a/b", "x\"y"]) {
+    let threw = false
+    try { run("history.sh", ["add", store, bad], home) } catch (e) { threw = true }
+    ok(threw, JSON.stringify(bad) + " is refused")
+  }
+  eq(run("history.sh", ["list", store], home), "", "nothing was written by a rejected add")
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
 report("scripts")

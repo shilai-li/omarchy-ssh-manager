@@ -58,7 +58,8 @@ Panel {
   property var editorFields: null
   property string editorOriginal: ""
 
-  readonly property var rows: Diagnostics.filterHosts(Diagnostics.orderHosts(hosts), filterText)
+  readonly property var rows: Diagnostics.filterHosts(
+    Diagnostics.orderHosts(hosts, host ? host.recencyByName : null), filterText)
   readonly property var currentHost: selectedIndex >= 0 && selectedIndex < rows.length ? rows[selectedIndex] : null
   readonly property string currentName: currentHost ? currentHost.name : ""
   readonly property bool connectable: !!currentHost && !currentHost.wildcard
@@ -108,6 +109,7 @@ Panel {
     root.showList()
     root.filterText = ""
     root.cursorActive = true
+    root.selectedIndex = 0
     if (root.host) root.host.refresh()
     root.controller.show()
     Qt.callLater(function() {
@@ -430,9 +432,15 @@ Panel {
       Text {
         width: parent.width
         textFormat: Text.PlainText
-        text: row.modelData && row.modelData.wildcard
-          ? "pattern · applies to matching hosts"
-          : Diagnostics.hostSubtitle(row.modelData)
+        text: {
+          if (!row.modelData) return ""
+          if (row.modelData.wildcard) return "pattern · applies to matching hosts"
+          var rec = root.host ? root.host.recencyByName[row.modelData.name] : undefined
+          var base = Diagnostics.hostSubtitle(row.modelData)
+          if (rec === undefined) return base
+          var used = "used " + Diagnostics.relativeTime(rec)
+          return base === "" ? used : base + " · " + used
+        }
         color: root.dim
         font.family: root.contentFontFamily
         font.pixelSize: Style.font.caption
