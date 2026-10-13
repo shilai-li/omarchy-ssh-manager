@@ -55,7 +55,7 @@ Non-negotiables:
 ## Layout
 
 ```
-manifest.json         one kind, no settings
+manifest.json         one kind, two settings: startHidden, hideWhileRecording
 BarWidget.qml         owns the config text, the processes, the writes, IPC
 Panel.qml             list + filter + key routing + the one confirmation dialog
 Details.qml           one host in full (presentation only)
