@@ -21,7 +21,15 @@ Item {
   property color accentColor: Commons.Color.accent
   property string fontFamily: Style.font.family
 
+  // ---- Theme. The same derivations Panel.qml makes, from the same tokens.
+  readonly property color surface: Commons.Color.popups.background
   readonly property color dim: Qt.darker(foreground, 1.5)
+  readonly property color cardFill: Util.alpha(foreground, 0.06)
+  readonly property color quietFill: Util.alpha(foreground, 0.12)
+  readonly property bool rounded: Style.cornerRadius > 0
+  readonly property int cardRadius: rounded ? Math.max(Style.cornerRadius * 2, Style.space(12)) : 0
+  readonly property int buttonHeight: Math.max(Style.space(36), Style.font.body + Style.space(20))
+
   readonly property bool editing: originalName !== ""
 
   signal submitted(var values)
@@ -68,9 +76,15 @@ Item {
 
   implicitHeight: column.implicitHeight
 
+  component Label: Text {
+    textFormat: Text.PlainText
+    color: root.foreground
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.body
+  }
+
   // Every field behaves the same: Tab walks, Enter saves, Esc cancels.
   component Input: TextField {
-    width: parent ? parent.width : 0
     foreground: root.foreground
     accent: root.accentColor
 
@@ -86,23 +100,75 @@ Item {
     }
   }
 
-  // One labelled input. The label sits above the field rather than beside it
-  // so a long identity path gets the whole panel width.
-  component Field: Column {
-    id: field
+  // One row of the grouped form: the keyword on the left, exactly as it is
+  // spelled in the file, and its field taking the rest of the width.
+  component FieldRow: Item {
+    id: fieldRow
     required property string label
-    property string hint: ""
+    property bool first: false
+    default property alias input: slot.data
 
-    width: column.width
-    spacing: Style.space(3)
+    width: parent ? parent.width : 0
+    height: slot.childrenRect.height + Style.space(12)
 
-    Text {
-      textFormat: Text.PlainText
-      text: field.label + (field.hint === "" ? "" : "   " + field.hint)
-      color: root.dim
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-      font.letterSpacing: 1
+    PanelSeparator {
+      visible: !fieldRow.first
+      anchors.top: parent.top
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(12)
+      width: parent.width - Style.space(12)
+      foreground: root.foreground
+      strength: 0.08
+    }
+
+    Label {
+      id: fieldLabel
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(12)
+      anchors.verticalCenter: parent.verticalCenter
+      width: Style.space(96)
+      text: fieldRow.label
+      font.pixelSize: Style.font.bodySmall
+    }
+
+    Item {
+      id: slot
+      anchors.left: fieldLabel.right
+      anchors.right: parent.right
+      anchors.rightMargin: Style.space(6)
+      anchors.verticalCenter: parent.verticalCenter
+      height: childrenRect.height
+    }
+  }
+
+  // A full-width button. The one that saves is filled with the text color —
+  // the accent is kept for things that are on, and saving is not a state.
+  component ActionButton: Rectangle {
+    id: button
+    property string label: ""
+    property bool primary: false
+    signal activated()
+
+    height: root.buttonHeight
+    radius: root.rounded ? height / 2 : 0
+    color: button.primary
+      ? (buttonMouse.containsMouse ? Qt.darker(root.foreground, 1.1) : root.foreground)
+      : (buttonMouse.containsMouse ? Util.alpha(root.foreground, 0.16) : root.cardFill)
+
+    Behavior on color { ColorAnimation { duration: Style.duration(120) } }
+
+    Label {
+      anchors.centerIn: parent
+      text: button.label
+      color: button.primary ? root.surface : root.foreground
+      font.bold: true
+    }
+    MouseArea {
+      id: buttonMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: button.activated()
     }
   }
 
@@ -111,108 +177,134 @@ Item {
     width: root.width
     spacing: Style.space(10)
 
-    Text {
-      width: parent.width
-      textFormat: Text.PlainText
-      text: root.editing ? "Edit " + root.originalName : "New host"
-      color: root.foreground
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.subtitle
-      font.bold: true
-      elide: Text.ElideRight
-    }
-
-    Field {
-      label: "HOST"
-      hint: "the name you type after ssh"
-
-      Input {
-        id: hostField
-        placeholderText: "web1"
-      }
-    }
-
-    Field {
-      label: "HOSTNAME"
-      hint: "address to connect to"
-
-      Input {
-        id: hostNameField
-        placeholderText: "192.168.1.10"
-      }
-    }
-
-    Field {
-      label: "USER"
-
-      Input {
-        id: userField
-        placeholderText: "root"
-      }
-    }
-
-    Field {
-      label: "PORT"
-
-      Input {
-        id: portField
-        placeholderText: "22"
-        inputMethodHints: Qt.ImhDigitsOnly
-      }
-    }
-
-    Field {
-      label: "IDENTITYFILE"
-      hint: "path to the private key"
-
-      Input {
-        id: identityField
-        placeholderText: "~/.ssh/id_ed25519"
-      }
-    }
-
-    Text {
+    // A refused save says so first, before the fields, because the fields may
+    // now hold what the other writer put there rather than what was typed.
+    Rectangle {
       width: parent.width
       visible: root.errorText !== ""
-      textFormat: Text.PlainText
-      text: root.errorText
-      color: Commons.Color.urgent
-      font.family: root.fontFamily
+      height: errorRow.implicitHeight + Style.space(20)
+      radius: root.cardRadius
+      color: Util.alpha(Commons.Color.urgent, 0.14)
+
+      Row {
+        id: errorRow
+        x: Style.space(12)
+        anchors.verticalCenter: parent.verticalCenter
+        width: parent.width - Style.space(24)
+        spacing: Style.space(10)
+
+        Label {
+          id: errorGlyph
+          text: "\u{F0026}"
+          color: Commons.Color.urgent
+          font.pixelSize: Style.font.icon
+        }
+        Label {
+          width: parent.width - errorGlyph.width - parent.spacing
+          anchors.verticalCenter: parent.verticalCenter
+          text: root.errorText
+          font.pixelSize: Style.font.bodySmall
+          wrapMode: Text.WordWrap
+        }
+      }
+    }
+
+    Label {
+      width: parent.width
+      leftPadding: Style.space(10)
+      text: "ENTRY"
+      color: root.dim
+      font.pixelSize: Style.font.caption
+      font.bold: true
+      font.letterSpacing: 0.4
+    }
+
+    Rectangle {
+      width: parent.width
+      height: form.implicitHeight + Style.space(8)
+      radius: root.cardRadius
+      color: root.cardFill
+
+      Column {
+        id: form
+        x: Style.space(4)
+        y: Style.space(4)
+        width: parent.width - Style.space(8)
+
+        FieldRow {
+          label: "Host"
+          first: true
+          Input {
+            id: hostField
+            width: parent.width
+            placeholderText: "the name you type after ssh"
+          }
+        }
+        FieldRow {
+          label: "HostName"
+          Input {
+            id: hostNameField
+            width: parent.width
+            placeholderText: "address or DNS name"
+          }
+        }
+        FieldRow {
+          label: "User"
+          Input {
+            id: userField
+            width: parent.width
+            placeholderText: "your local user"
+          }
+        }
+        FieldRow {
+          label: "Port"
+          Input {
+            id: portField
+            width: parent.width
+            placeholderText: "22"
+            inputMethodHints: Qt.ImhDigitsOnly
+          }
+        }
+        FieldRow {
+          label: "IdentityFile"
+          Input {
+            id: identityField
+            width: parent.width
+            placeholderText: "ssh's defaults"
+          }
+        }
+      }
+    }
+
+    Label {
+      width: parent.width
+      leftPadding: Style.space(10)
+      rightPadding: Style.space(10)
+      text: root.editing
+        ? "Only these five keywords change. Everything else in the block, and every "
+          + "comment around it, is left exactly as it is."
+        : "Written above the first Host * block, so its defaults cannot override what "
+          + "you set here. Leave a field empty to let ssh decide."
+      color: root.dim
       font.pixelSize: Style.font.caption
       wrapMode: Text.WordWrap
     }
 
     Row {
-      spacing: Style.space(8)
-
-      Button {
-        text: "Save"
-        bordered: true
-        foreground: root.foreground
-        accent: root.accentColor
-        fontFamily: root.fontFamily
-        onClicked: root.submit()
-      }
-
-      Button {
-        text: "Cancel"
-        bordered: true
-        foreground: root.foreground
-        accent: root.accentColor
-        fontFamily: root.fontFamily
-        onClicked: root.canceled()
-      }
-    }
-
-    Text {
       width: parent.width
-      textFormat: Text.PlainText
-      text: "Only these five keywords are written. Anything else already in the "
-        + "block — and every comment around it — is left exactly as it is."
-      color: Qt.darker(root.foreground, 2.0)
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-      wrapMode: Text.WordWrap
+      spacing: Style.space(10)
+
+      ActionButton {
+        width: (parent.width - parent.spacing) / 2
+        label: "Cancel"
+        onActivated: root.canceled()
+      }
+      ActionButton {
+        width: (parent.width - parent.spacing) / 2
+        label: "Save"
+        primary: true
+        onActivated: root.submit()
+      }
     }
   }
 }

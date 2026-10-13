@@ -6,17 +6,28 @@ it connecting* next to each one. For [Omarchy](https://omarchy.org).
 ![SSH Manager host list](assets/ssh-manager-host-list.png)
 
 ```
-SSH Manager                                    ssh-agent: 1 key
-Search hosts…
-──────────────────────────────────────────────────────────────
-● omarchy                                              ~/.ssh/id_ed25519
-  shilai_li@192.168.10.175
-● server                                                    Authenticated
-  user@10.0.0.20
-✕ devbox                                                      Unreachable
-  dev@example.com
-──────────────────────────────────────────────────────────────
-↑↓ move   enter connect   → details   ^t test   ^n new   type to filter
+▣ SSH                                                ● agent · 1 key
+╭──────────────────────────────────────────────────────────────────╮
+│ ⌕ Type to filter hosts                                           │
+╰──────────────────────────────────────────────────────────────────╯
+╭ ! devbox is declared 2 times ────────────────────────────────────╮
+│   ssh reads ~/.ssh/config:12 first; config.d/work:3 never wins   │
+╰──────────────────────────────────────────────────────────────────╯
+HOSTS
+╭──────────────────────────────────────────────────────────────────╮
+│ [✓] omarchy                                                      │
+│     shilai_li@192.168.10.175                                     │
+│ [–] server                                                       │
+│     user@10.0.0.20                                               │
+│ [✗] devbox                                          Unreachable  │
+│     dev@example.com                                              │
+╰──────────────────────────────────────────────────────────────────╯
+PATTERNS
+╭──────────────────────────────────────────────────────────────────╮
+│ [*] *                                                            │
+│     Applies to every host it matches                             │
+╰──────────────────────────────────────────────────────────────────╯
+ enter connect  → details  ^n new  esc close
 ```
 
 - **It runs the real ssh client.** `ssh -G` for the effective configuration,
@@ -74,15 +85,23 @@ order ssh reads them. Wildcard entries (`Host *`) sort to the bottom and are
 marked as patterns — they are not somewhere to connect, but they are usually
 where a surprising value came from.
 
+Each row starts with a square that says what the last test found. The glyph
+differs for every state, so it reads the same on a theme whose warning color
+is its accent color.
+
 | Mark | |
 |---|---|
-| `○` | not tested yet |
-| `●` | answered and authenticated |
-| `◑` | answered, but refused the key |
-| `✕` | unreachable |
+| `–` on a quiet square | not tested yet |
+| `✓` filled with the accent | answered and authenticated |
+| `!` on a tinted square | answered, but refused the key |
+| `✗` filled with the urgent color | unreachable |
 
 Nothing is tested until you ask. Opening the panel makes no network
 connection.
+
+The list keeps to what you need to pick a host: its status square, its name and
+`user@address`, and words only when something is wrong (`Unreachable`, `Key
+refused`). `↑↓` and `^t` work without being listed.
 
 | Key | |
 |---|---|
@@ -103,21 +122,35 @@ connection.
 ![SSH Manager host details and diagnostics](assets/ssh-manager-host-details.png)
 
 ```
-omarchy
-
-HostName       192.168.10.175
-User           shilai_li
-Port           22
-
+‹ omarchy                                      ● AUTHENTICATED
+╭──────────────────────────────────────────────────────────────╮
+│                            ( ▣ )                             │
+│                           Connect                            │
+│                   shilai_li@192.168.10.175                   │
+╰──────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────╮
+│    (✓)            (✓)            (✓)            (✓)          │
+│  Reachable        Key            Auth          Config        │
+│                 on disk                                      │
+╰──────────────────────────────────────────────────────────────╯
+╭ (∿) Test ───────────────────╮ ╭ (✎) Edit ────────────────────╮
+│     Authenticated           │ │     Five fields, nothing else│
+╰─────────────────────────────╯ ╰──────────────────────────────╯
+WHAT SSH WILL USE                                         ssh -G
+╭──────────────────────────────────────────────────────────────╮
+│ HostName                                      192.168.10.175 │
+│ User                                               shilai_li │
+│ Port                                                      22 │
+╰──────────────────────────────────────────────────────────────╯
 IDENTITIES SSH WILL TRY
-✓ ~/.ssh/id_ed25519                                   on disk
-
-Host reachable                                              ✓
-Key available                                   on disk     ✓
-Authentication                                              ✓
-Config valid                                                ✓
-
-defined in ~/.ssh/config:4
+╭──────────────────────────────────────────────────────────────╮
+│ [⚿] ~/.ssh/id_ed25519                                        │
+│     On disk                                                  │
+╰──────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────╮
+│ [⌦] Remove host                                            › │
+╰──────────────────────────────────────────────────────────────╯
+Defined in ~/.ssh/config:4. Nothing here touches the network until you test.
 ```
 
 The values come from `ssh -G <host>`, so they are what ssh will actually use —

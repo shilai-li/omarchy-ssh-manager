@@ -243,11 +243,23 @@ check("the row says what we know and no more", () => {
   eq(D.hostState(D.parseProbe("T\tok\nA\tdenied\n")), D.STATE_WARN, "answered, but refused")
   eq(D.hostState(D.parseProbe("T\tfail\nA\tunreachable\n")), D.STATE_BAD)
 
-  eq(D.hostDetail({ identityFiles: [] }, D.parseProbe("T\tfail\nA\tunreachable\n"), null, HOME), "Unreachable")
-  eq(D.hostDetail({ identityFiles: ["/home/u/.ssh/id_x"] }, null, null, HOME), "~/.ssh/id_x")
-  eq(D.hostDetail({ identityFiles: [] }, null, agent, HOME), "SSH Agent")
-  eq(D.hostDetail({ wildcard: true, identityFiles: [] }, null, agent, HOME), "pattern",
-     "a pattern is not a connection")
+  eq(D.rowProblem({ name: "a" }, D.parseProbe("T\tfail\nA\tunreachable\n")), "Unreachable")
+  eq(D.rowProblem({ name: "a" }, D.parseProbe("T\tok\nA\tdenied\n")), "Key refused")
+  eq(D.rowProblem({ name: "a" }, D.parseProbe("T\tok\nA\tok\n")), "", "a working host needs no words")
+  eq(D.rowProblem({ name: "a", identityFiles: ["/home/u/.ssh/id_x"] }, null), "", "nor an untested one")
+  eq(D.rowProblem({ name: "*", wildcard: true }, D.parseProbe("T\tfail\n")), "", "a pattern is not a connection")
+})
+
+check("the header badge reports the last test and nothing more", () => {
+  eq(D.hostBadge({ name: "web1" }, null).text, "Not tested")
+  eq(D.hostBadge({ name: "web1" }, null).state, D.STATE_UNKNOWN)
+  eq(D.hostBadge({ name: "web1" }, D.parseProbe("T\tok\nA\tok\n")).text, "Authenticated")
+  eq(D.hostBadge({ name: "web1" }, D.parseProbe("T\tok\nA\tdenied\n")).text, "Key refused")
+  eq(D.hostBadge({ name: "web1" }, D.parseProbe("T\tok\nA\thostkey\n")).text, "Host key changed")
+  eq(D.hostBadge({ name: "web1" }, D.parseProbe("T\tfail\nA\tunreachable\n")).text, "Unreachable")
+  eq(D.hostBadge({ name: "web1" }, D.parseProbe("T\tfail\nA\tunreachable\n")).state, D.STATE_BAD)
+  eq(D.hostBadge({ name: "*", wildcard: true }, D.parseProbe("T\tok\nA\tok\n")).text, "Pattern",
+     "a pattern is never tested")
 })
 
 check("state is legible without color", () => {

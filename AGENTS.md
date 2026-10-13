@@ -156,9 +156,9 @@ and asks. A request that is never agreed to is cleared when the panel closes.
 distinguishes "we asked and it failed" from "we never asked".
 
 **Shape carries status, not only color.** Themes may define `urgent` as any
-color, and several map it to the same hue as the accent. The row marks
-(`○ ● ◑ ✕`) and checklist glyphs (`– ✓ ! ✗`) are distinct without color; there
-is a test asserting they stay distinct.
+color, and several map it to the same hue as the accent. The row squares and
+the checklist discs both carry the checklist glyphs (`– ✓ ! ✗`), which are
+distinct without color; there is a test asserting they stay distinct.
 
 **The panel owns the cursor and nothing else.** Every host, probe and write
 lives on `BarWidget.qml`; `Panel`, `Details` and `Editor` are read-outs that

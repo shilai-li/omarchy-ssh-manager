@@ -462,22 +462,16 @@ function hostSubtitle(host) {
   return host.user ? host.user + "@" + target : target
 }
 
-function hostDetail(host, probe, agent, home) {
-  // A pattern is never connected to, so "SSH Agent" under one would be
-  // claiming something about a row that cannot be tested.
-  if (host && host.wildcard) return "pattern"
-
-  if (probe && probe.tested) {
-    if (probe.auth === "ok") return "Authenticated"
-    if (probe.auth === "denied") return "Key refused"
-    if (probe.auth === "hostkey") return "Host key changed"
-    if (probe.tcp === "fail" || probe.auth === "unreachable") return "Unreachable"
-    if (probe.auth === "error") return "Error"
-  }
-  if (host && host.identityFiles && host.identityFiles.length > 0) {
-    return shortenPath(host.identityFiles[0], home)
-  }
-  if (agent && agent.running && agent.keys.length > 0) return "SSH Agent"
+// What the list says beside a host, which is nothing unless something is
+// wrong. The status square already shows how the last test went; a working
+// host does not need a sentence saying so.
+function rowProblem(host, probe) {
+  if (!host || host.wildcard || !probe || !probe.tested) return ""
+  if (probe.auth === "ok") return ""
+  if (probe.auth === "denied") return "Key refused"
+  if (probe.auth === "hostkey") return "Host key changed"
+  if (probe.tcp === "fail" || probe.auth === "unreachable") return "Unreachable"
+  if (probe.auth === "error") return "Error"
   return ""
 }
 
@@ -489,6 +483,21 @@ function hostState(probe) {
   if (probe.auth === "" && probe.tcp === "ok") return STATE_OK
   if (probe.tcp === "ok") return STATE_WARN
   return STATE_BAD
+}
+
+// The one-word answer in the details header. It is status, so it says what the
+// last test found and nothing it did not: an untested host is "Not tested",
+// not a guess from the key on disk.
+function hostBadge(host, probe) {
+  if (host && host.wildcard) return { state: STATE_UNKNOWN, text: "Pattern" }
+  var state = hostState(probe)
+  if (state === STATE_UNKNOWN) return { state: state, text: "Not tested" }
+  if (probe.auth === "ok") return { state: state, text: "Authenticated" }
+  if (probe.auth === "denied") return { state: state, text: "Key refused" }
+  if (probe.auth === "hostkey") return { state: state, text: "Host key changed" }
+  if (probe.tcp === "fail" || probe.auth === "unreachable") return { state: state, text: "Unreachable" }
+  if (state === STATE_OK) return { state: state, text: "Reachable" }
+  return { state: state, text: "Error" }
 }
 
 // Concrete hosts in the order the files declare them, then the wildcard
@@ -560,8 +569,9 @@ if (typeof module !== "undefined" && module.exports) {
     checklist: checklist,
     findings: findings,
     hostSubtitle: hostSubtitle,
-    hostDetail: hostDetail,
+    rowProblem: rowProblem,
     hostState: hostState,
+    hostBadge: hostBadge,
     orderHosts: orderHosts,
     filterHosts: filterHosts,
     clampIndex: clampIndex,
