@@ -2,6 +2,7 @@ import QtQuick
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
+import "Diagnostics.js" as Diagnostics
 
 // Add or change one Host entry.
 //
@@ -16,6 +17,9 @@ Item {
   property var fields: null
   property string originalName: ""
   property string errorText: ""
+  // While details are hidden, the four fields that say where and as whom are
+  // echoed like passwords. Typing still works; ^h shows them.
+  property bool hidden: false
 
   property color foreground: Commons.Color.foreground
   property color accentColor: Commons.Color.accent
@@ -237,6 +241,7 @@ Item {
           Input {
             id: hostField
             width: parent.width
+            password: root.hidden && Diagnostics.looksLikeAddress(root.originalName)
             placeholderText: "the name you type after ssh"
           }
         }
@@ -245,6 +250,7 @@ Item {
           Input {
             id: hostNameField
             width: parent.width
+            password: root.hidden
             placeholderText: "address or DNS name"
           }
         }
@@ -253,6 +259,7 @@ Item {
           Input {
             id: userField
             width: parent.width
+            password: root.hidden
             placeholderText: "your local user"
           }
         }
@@ -261,6 +268,7 @@ Item {
           Input {
             id: portField
             width: parent.width
+            password: root.hidden
             placeholderText: "22"
             inputMethodHints: Qt.ImhDigitsOnly
           }
@@ -270,6 +278,7 @@ Item {
           Input {
             id: identityField
             width: parent.width
+            password: root.hidden
             placeholderText: "ssh's defaults"
           }
         }
@@ -280,7 +289,10 @@ Item {
       width: parent.width
       leftPadding: Style.space(10)
       rightPadding: Style.space(10)
-      text: root.editing
+      text: root.hidden
+        ? "Where and as whom are masked like passwords while details are hidden. "
+          + "Typing still works; ^h shows them before you save."
+        : root.editing
         ? "Only these five keywords change. Everything else in the block, and every "
           + "comment around it, is left exactly as it is."
         : "Written above the first Host * block, so its defaults cannot override what "

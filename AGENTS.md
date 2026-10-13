@@ -70,6 +70,7 @@ bin/effective.sh      ssh -G, plus which identity files exist and their fingerpr
 bin/probe.sh          TCP reachability and authentication, without a session
 bin/agent.sh          ssh-add -l, bounded, with its exit status intact
 bin/results.sh        the last test of each host, remembered across restarts
+bin/recording.sh      whether omarchy is recording the screen, for hiding
 test/test.sh          everything, under plain node
 ```
 
@@ -155,6 +156,15 @@ and asks. A request that is never agreed to is cleared when the panel closes.
 **Unknown is a state.** An untested host is `–`, not `✓`. `parseProbe` sets
 `tested` only when a record actually arrived, and every checklist row
 distinguishes "we asked and it failed" from "we never asked".
+
+**Hiding is about the screen, never about ssh.** `hidden` on BarWidget takes
+users, addresses, ports, key paths and the agent socket off what is drawn —
+through `Diagnostics.displayName`, `MASK`, `maskText` and `findings(…,
+hidden)` — and changes nothing that is run. The alias stays visible unless it
+is itself an address. A new view that shows a value from the config or from
+ssh has to decide what it shows while hidden; `secretsFor` is the list of what
+gives a host away. A recording locks hiding on, and the socket can only hide:
+showing is for the person at the keyboard.
 
 **A remembered result is an old answer, not a new one.** The last test of each
 host is kept by `bin/results.sh` under `$XDG_STATE_HOME/shilai_li.ssh-manager/`

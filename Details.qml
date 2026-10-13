@@ -26,6 +26,9 @@ Item {
   property string home: ""
   property bool probing: false
   property real now: 0
+  // Users, addresses, ports and key paths off the screen. Every value below
+  // that says where a host is or who you are on it goes through `shown()`.
+  property bool hidden: false
 
   property color foreground: Commons.Color.foreground
   property color accentColor: Commons.Color.accent
@@ -72,6 +75,9 @@ Item {
     return fallback || ""
   }
 
+  readonly property var secrets: Diagnostics.secretsFor(root.host, root.effective, root.home)
+  function shown(value) { return root.hidden && value !== "" ? Diagnostics.MASK : value }
+
   // Only the rows that have a value: an empty ProxyJump is not a fact worth a
   // line. ssh -G answers "hostname *" for a wildcard, which is only the
   // pattern echoed back and would read as a real address.
@@ -85,9 +91,11 @@ Item {
       ["IdentityAgent", Diagnostics.shortenPath(root.resolved("identityagent", ""), root.home)]
     ]
     return all.filter(function(row) { return row[1] !== "" })
+      .map(function(row) { return [row[0], root.shown(row[1])] })
   }
 
   readonly property string target: {
+    if (root.hidden) return Diagnostics.MASKED_TARGET
     var user = root.resolved("user", root.host ? root.host.user : "")
     var name = root.resolved("hostname", root.host ? (root.host.hostName || root.host.name) : "")
     var port = root.resolved("port", root.host ? root.host.port : "")
@@ -294,7 +302,8 @@ Item {
           text: root.wildcard
             ? "These values apply to every host it matches."
             : Diagnostics.plainLabel(root.target, 120)
-          color: root.dim
+          color: root.hidden && !root.wildcard ? Qt.darker(root.foreground, 2.0) : root.dim
+          font.letterSpacing: root.hidden && !root.wildcard ? 1 : 0
           font.pixelSize: Style.font.bodySmall
           wrapMode: Text.WordWrap
         }
@@ -341,7 +350,9 @@ Item {
               rightPadding: Style.space(2)
               horizontalAlignment: Text.AlignHCenter
               visible: text !== ""
-              text: parent.waiting ? "asking…" : parent.modelData.detail
+              text: parent.waiting ? "asking…"
+                : root.hidden ? Diagnostics.maskText(parent.modelData.detail, root.secrets)
+                : parent.modelData.detail
               color: parent.modelData.state === Diagnostics.STATE_BAD && !parent.waiting
                 ? Commons.Color.urgent : root.dim
               font.pixelSize: Style.font.caption
@@ -476,7 +487,8 @@ Item {
               anchors.verticalCenter: parent.verticalCenter
               horizontalAlignment: Text.AlignRight
               text: Diagnostics.plainLabel(parent.modelData[1], 160)
-              color: root.dim
+              color: root.hidden ? Qt.darker(root.foreground, 2.0) : root.dim
+              font.letterSpacing: root.hidden ? 1 : 0
               font.pixelSize: Style.font.bodySmall
               elide: Text.ElideMiddle
             }
@@ -567,7 +579,10 @@ Item {
 
               Label {
                 width: parent.width
-                text: Diagnostics.plainLabel(Diagnostics.shortenPath(identityRow.modelData.path, root.home), 160)
+                // An agent key's "path" is its comment, which is often an
+                // email address — numbered like the rest while hidden.
+                text: root.hidden ? "Key " + (identityRow.index + 1)
+                  : Diagnostics.plainLabel(Diagnostics.shortenPath(identityRow.modelData.path, root.home), 160)
                 font.bold: true
                 elide: Text.ElideMiddle
               }
@@ -656,7 +671,9 @@ Item {
       rightPadding: Style.space(10)
       text: root.host
         ? "Defined in " + Diagnostics.shortenPath(root.host.file, root.home) + ":" + root.host.line
-          + ". Nothing here touches the network until you test."
+          + (root.hidden
+            ? ". Connect and Test still use the real values; only the screen is hidden."
+            : ". Nothing here touches the network until you test.")
         : ""
       color: root.dim
       font.pixelSize: Style.font.caption

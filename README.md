@@ -6,7 +6,7 @@ it connecting* next to each one. For [Omarchy](https://omarchy.org).
 ![SSH Manager host list](assets/ssh-manager-host-list.png)
 
 ```
-▣ SSH                                                ● agent · 1 key
+▣ SSH                                          ● agent · 1 key   (◉)
 ╭──────────────────────────────────────────────────────────────────╮
 │ ⌕ Type to filter hosts                                           │
 ╰──────────────────────────────────────────────────────────────────╯
@@ -103,7 +103,7 @@ connection.
 
 The list keeps to what you need to pick a host: its status square, its name and
 `user@address`, and words only when something is wrong (`Unreachable`, `Key
-refused`). `↑↓` and `^t` work without being listed.
+refused`). `↑↓`, `^t` and `^h` work without being listed.
 
 The last result of each test is remembered, so restarting the shell does not
 turn every host back into "not tested". How old it is shows in the host's
@@ -122,6 +122,7 @@ in a `0600` file in a `0700` directory under `~/.local/state`.
 | `^e` | edit the selected host |
 | `delete` | remove the selected host (asks first) |
 | anything else | filters the list |
+| `^h` | hide or show users, addresses and key paths |
 | `esc` | clear the filter, then close |
 
 **Left click** a row to connect, **right click** for details.
@@ -190,6 +191,31 @@ because nothing here asks that agent what it holds.
 | `x` | remove (asks first) |
 | `esc` / `←` | back to the list |
 
+### Hiding users and addresses
+
+For a screen someone else can see — a call, a stream, a recording — the eye
+button in the header (or `^h`, in any view) takes off the screen what says
+where a host is and who you are on it: users, addresses, ports, key paths, the
+agent socket, and those values wherever a warning or ssh's own message quotes
+them. Host names stay, as do test results and the file and line, so the panel
+still works. A host whose name *is* an address is shown as `host 3`.
+
+While hidden, the filter matches host names only, and the editor masks
+HostName, User, Port and IdentityFile like password fields — typing still
+works, and `^h` shows them before you save. Connecting and testing use the
+real values; only the screen changes. The terminal a connection opens is ssh's
+own, and may print the address.
+
+Two settings, set with `omarchy bar set shilai_li.ssh-manager <setting> true|false`:
+
+| Setting | |
+|---|---|
+| `startHidden` | hide every time the shell starts (off by default) |
+| `hideWhileRecording` | on while Omarchy records the screen, and locked until it stops (on by default) |
+
+Only Omarchy's own recorder can be seen from here; a browser or meeting app
+sharing the screen cannot, which is what `startHidden` is for.
+
 ### Adding and editing
 
 Five fields — `Host`, `HostName`, `User`, `Port`, `IdentityFile` — because
@@ -242,6 +268,7 @@ omarchy-shell shilai_li.ssh-manager refresh
 omarchy-shell shilai_li.ssh-manager connect <host>
 omarchy-shell shilai_li.ssh-manager test <host>    # opens the panel and asks
 omarchy-shell shilai_li.ssh-manager status         # JSON
+omarchy-shell shilai_li.ssh-manager hideDetails    # hide users and addresses
 ```
 
 That socket is reachable by anything running as you, and unlike the panel there
@@ -254,6 +281,9 @@ panel:
 - `test` opens a TCP connection and offers a key to whatever answers, so it
   does not do it on its own: it raises the panel on that host and asks. Press
   `t` on a host yourself and it just runs — that keystroke *is* the answer.
+- `hideDetails` can only hide. Putting users and addresses back on a screen
+  that may be shared is for the person at the keyboard (`^h`), so there is no
+  socket call that shows them.
 - `status` reports which aliases exist, how many hosts and files there are, and
   whether an agent is running. It does not report hostnames, usernames, ports,
   key paths, file paths, key fingerprints or agent key comments. An inventory of

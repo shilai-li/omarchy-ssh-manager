@@ -388,7 +388,7 @@ function label(text, result) {
 // The things worth telling the user without being asked. Each one names what
 // is wrong and where, and none of them is inferred from something we did not
 // actually check.
-function findings(host, effective, agent, probe, duplicates, home) {
+function findings(host, effective, agent, probe, duplicates, home, hidden) {
   var out = []
   var i
 
@@ -417,8 +417,8 @@ function findings(host, effective, agent, probe, duplicates, home) {
     if (entry.pattern === "*") continue
     out.push({
       level: STATE_WARN,
-      text: entry.key + " " + entry.value + " in " + shortenPath(entry.file, home) + ":" + entry.line
-        + " is ignored — " + entry.winnerPattern + " already set " + entry.winnerValue
+      text: entry.key + " " + (hidden ? MASK : entry.value) + " in " + shortenPath(entry.file, home) + ":" + entry.line
+        + " is ignored — " + entry.winnerPattern + " already set " + (hidden ? MASK : entry.winnerValue)
     })
   }
 
@@ -448,6 +448,11 @@ function findings(host, effective, agent, probe, duplicates, home) {
   if (effectiveValue(effective, "forwardagent", "no") === "yes" && identityAgent(effective) === ""
       && agent && agent.checked && !agent.running) {
     out.push({ level: STATE_WARN, text: "ForwardAgent is on, but there is no ssh-agent to forward" })
+  }
+
+  if (hidden) {
+    var secrets = secretsFor(host, effective, home)
+    for (i = 0; i < out.length; i++) out[i] = { level: out[i].level, text: maskText(out[i].text, secrets) }
   }
 
   return out
@@ -484,6 +489,82 @@ function hostState(probe) {
   if (probe.auth === "" && probe.tcp === "ok") return STATE_OK
   if (probe.tcp === "ok") return STATE_WARN
   return STATE_BAD
+}
+
+// -------------------------------------------------------------- hiding
+//
+// Hiding is for a screen somebody else can see: a call, a stream, a recording.
+// It takes off the screen what says where a host is and who you are on it —
+// user, address, port, key paths, the agent socket — and keeps the alias, the
+// test result and the file and line, because without them the panel cannot
+// be used. Nothing about connecting changes; only what is drawn.
+//
+// The masks are a fixed length, so the length of a name gives nothing away.
+
+var MASK = "••••••••"
+var MASKED_TARGET = "••••••@••••••••"
+
+// An alias that is itself an address — `Host 192.168.1.10` — would show the
+// very thing being hidden, so it is shown as a number instead. Patterns made
+// of address parts (`10.0.*`) count too: they name a network.
+function looksLikeAddress(name) {
+  var s = trim(name)
+  if (/^[0-9]{1,3}(\.[0-9]{1,3}){3}$/.test(s)) return true
+  if (s.indexOf(":") >= 0 && /^[0-9a-fA-F:.%\[\]]+$/.test(s)) return true
+  if (/[0-9]/.test(s) && /^[0-9.*?:\[\]]+$/.test(s) && /[.:]/.test(s)) return true
+  return false
+}
+
+// `number` is the host's place in the whole ordered list, not the filtered
+// one, so "host 3" stays host 3 while a filter is typed.
+function displayName(host, hidden, number) {
+  if (!host) return ""
+  if (hidden && looksLikeAddress(host.name)) return (host.wildcard ? "pattern " : "host ") + number
+  return plainLabel(host.name, 96)
+}
+
+// Every value of this host that would give it away, in the forms it can
+// appear in text: as written in the config, as ssh resolved it, and with the
+// home directory shortened to ~.
+function secretsFor(host, effective, home) {
+  var out = []
+  function add(value) {
+    value = trim(value)
+    if (value.length >= 3 && out.indexOf(value) < 0) out.push(value)
+    var short = shortenPath(value, home)
+    if (short.length >= 3 && out.indexOf(short) < 0) out.push(short)
+  }
+  if (host) {
+    add(host.hostName)
+    add(host.user)
+    add(host.proxy)
+    var files = host.identityFiles || []
+    for (var i = 0; i < files.length; i++) add(files[i])
+  }
+  if (effective) {
+    add(effectiveValue(effective, "hostname", ""))
+    add(effectiveValue(effective, "user", ""))
+    add(effectiveValue(effective, "proxyjump", ""))
+    add(effectiveValue(effective, "identityagent", ""))
+    var identities = effective.identities || []
+    for (var j = 0; j < identities.length; j++) add(identities[j].path)
+  }
+  return out
+}
+
+// Text that came from ssh or from the config, with this host's own values
+// masked and any address ssh quoted on its own masked too. Longest first, so
+// a path is masked whole before a shorter value inside it is.
+function maskText(text, secrets) {
+  var out = String(text === undefined || text === null ? "" : text)
+  var list = (secrets || []).slice().sort(function(a, b) { return b.length - a.length })
+  for (var i = 0; i < list.length; i++) out = out.split(list[i]).join(MASK)
+  out = out.replace(/\b[0-9]{1,3}(\.[0-9]{1,3}){3}\b/g, MASK)
+  out = out.replace(/\bport [0-9]+/gi, function(match) { return match.slice(0, 5) + MASK })
+  out = out.replace(/\b[0-9a-fA-F]{0,4}(:[0-9a-fA-F]{0,4}){2,7}\b/g, function(match) {
+    return /[0-9a-fA-F]/.test(match) ? MASK : match
+  })
+  return out
 }
 
 // ------------------------------------------------------ remembered results
@@ -589,14 +670,18 @@ function orderHosts(hosts) {
 
 // Substring matching over the name, the hostname and the user — the three
 // things anyone types when they are looking for a host.
-function filterHosts(hosts, query) {
+// While details are hidden only the alias is searched: matching on an address
+// would show, on screen, which host it belongs to.
+function filterHosts(hosts, query, namesOnly) {
   var needle = trim(query).toLowerCase()
   var out = []
 
   for (var i = 0; i < (hosts || []).length; i++) {
     var host = hosts[i]
     if (needle === "") { out.push(host); continue }
-    var haystack = [host.name, host.hostName, host.user, host.aliases ? host.aliases.join(" ") : ""]
+    var haystack = (namesOnly
+      ? [host.name, host.aliases ? host.aliases.join(" ") : ""]
+      : [host.name, host.hostName, host.user, host.aliases ? host.aliases.join(" ") : ""])
       .join(" ").toLowerCase()
     if (haystack.indexOf(needle) >= 0) out.push(host)
   }
@@ -646,6 +731,12 @@ if (typeof module !== "undefined" && module.exports) {
     hostState: hostState,
     hostBadge: hostBadge,
     serializeResults: serializeResults,
+    MASK: MASK,
+    MASKED_TARGET: MASKED_TARGET,
+    looksLikeAddress: looksLikeAddress,
+    displayName: displayName,
+    secretsFor: secretsFor,
+    maskText: maskText,
     parseResults: parseResults,
     ageText: ageText,
     RESULT_MAX_AGE: RESULT_MAX_AGE,

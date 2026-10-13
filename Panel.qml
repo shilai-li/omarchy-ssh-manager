@@ -51,6 +51,8 @@ Panel {
   // never as a connection. Nothing has touched the network yet when it does.
   readonly property string probeRequest: host ? host.probeRequest : ""
   readonly property real now: host ? host.now : 0
+  readonly property bool hidden: host ? host.hidden === true : false
+  readonly property bool hideLocked: host ? host.hideLocked === true : false
 
   property string view: "list"
   property string filterText: ""
@@ -66,7 +68,20 @@ Panel {
   property var editorFields: null
   property string editorOriginal: ""
 
-  readonly property var rows: Diagnostics.filterHosts(Diagnostics.orderHosts(hosts), filterText)
+  readonly property var ordered: Diagnostics.orderHosts(hosts)
+  readonly property var rows: Diagnostics.filterHosts(ordered, filterText, hidden)
+
+  // A host's number is its place in the whole list, so "host 3" stays host 3
+  // while a filter is typed.
+  function nameOf(entry) {
+    if (!entry) return ""
+    return Diagnostics.displayName(entry, root.hidden, root.ordered.indexOf(entry) + 1)
+  }
+  function nameFor(name) {
+    for (var i = 0; i < root.ordered.length; i++)
+      if (root.ordered[i].name === name) return root.nameOf(root.ordered[i])
+    return root.hidden && Diagnostics.looksLikeAddress(name) ? "this host" : Diagnostics.plainLabel(name, 96)
+  }
   readonly property var currentHost: selectedIndex >= 0 && selectedIndex < rows.length ? rows[selectedIndex] : null
   readonly property string currentName: currentHost ? currentHost.name : ""
   readonly property bool connectable: !!currentHost && !currentHost.wildcard
@@ -124,9 +139,9 @@ Panel {
     : Diagnostics.hostBadge(root.currentHost, root.currentProbe)
 
   readonly property string title: {
-    if (root.view === "details") return root.currentHost ? Diagnostics.plainLabel(root.currentHost.name, 64) : ""
+    if (root.view === "details") return root.nameOf(root.currentHost)
     if (root.view === "editor") return root.editorOriginal !== ""
-      ? "Edit " + Diagnostics.plainLabel(root.editorOriginal, 48) : "New host"
+      ? "Edit " + root.nameFor(root.editorOriginal) : "New host"
     return "SSH"
   }
 
@@ -140,7 +155,7 @@ Panel {
     for (var i = 0; i < first.places.length; i++)
       places.push(Diagnostics.shortenPath(first.places[i].file, root.home) + ":" + first.places[i].line)
     return {
-      title: Diagnostics.plainLabel(first.pattern, 48) + " is declared " + first.places.length + " times",
+      title: root.nameFor(first.pattern) + " is declared " + first.places.length + " times",
       detail: "ssh reads " + places[0] + " first" + (places.length > 1 ? "; " + places.slice(1).join(", ") + " never wins" : "")
         + (list.length > 1 ? " · " + (list.length - 1) + " more" : "")
     }
@@ -148,7 +163,7 @@ Panel {
 
   readonly property string confirmMessage: {
     if (!root.confirming) return ""
-    var name = Diagnostics.plainLabel(root.confirming.name)
+    var name = root.nameFor(root.confirming.name)
     if (root.confirming.kind === "probe")
       return "Test Host " + name + "? This connects to it and offers your key."
     return "Remove Host " + name + " from " + Diagnostics.shortenPath(root.configPath, root.home) + "?"
@@ -157,24 +172,28 @@ Panel {
   readonly property string confirmAction: root.confirming && root.confirming.kind === "probe" ? "Test" : "Remove"
 
   // What the keys do from here, as key and meaning.
+  readonly property var hideHint: root.hideLocked ? ["^h", "locked while recording"]
+    : ["^h", root.hidden ? "show" : "hide"]
+
   readonly property var keyHints: {
-    if (root.view === "editor") return [["tab", "next field"], ["enter", "save"], ["esc", "cancel"]]
+    if (root.view === "editor") return [["tab", "next field"], ["enter", "save"], root.hideHint, ["esc", "cancel"]]
     if (root.view === "details") {
       if (root.currentHost && root.currentHost.wildcard)
-        return [["e", "edit"], ["x", "remove"], ["esc", "back"]]
-      return [["c", "connect"], ["t", "test"], ["e", "edit"], ["x", "remove"], ["esc", "back"]]
+        return [["e", "edit"], ["x", "remove"], root.hideHint, ["esc", "back"]]
+      return [["c", "connect"], ["t", "test"], ["e", "edit"], ["x", "remove"], root.hideHint, ["esc", "back"]]
     }
     if (root.emptyConfig) {
       if (root.configState === "rejected") return [["enter", "check again"], ["esc", "close"]]
       return [["enter", "new host"], ["esc", "close"]]
     }
     // The first page stays short: the keys that are not obvious from looking
-    // at it. ↑↓ and ^t still work; details shows them.
+    // at it. ↑↓, ^t and ^h still work; details and the eye button show them.
     return [["enter", "connect"], ["→", "details"], ["^n", "new"], ["esc", "close"]]
   }
 
   // ---- Lifecycle.
   function open() {
+    if (root.host) root.host.checkRecording()
     root.disarmPointer()
     root.showList()
     root.filterText = ""
@@ -420,9 +439,16 @@ Panel {
   //      keep working while this item still has Keys.priority.
   function handleKey(event) {
     if (root.confirming) return confirmDialog.handleKey(event)
-    if (root.view === "editor") return false
 
     var ctrl = (event.modifiers & Qt.ControlModifier) !== 0
+
+    // Before the editor's early return: hiding has to work while typing too,
+    // which is exactly when an address is on screen.
+    if (ctrl && event.key === Qt.Key_H) {
+      if (root.host) root.host.toggleHidden()
+      return true
+    }
+    if (root.view === "editor") return false
 
     if (event.key === Qt.Key_Escape) {
       if (root.view === "details") root.showList()
@@ -687,18 +713,19 @@ Panel {
 
       Label {
         width: parent.width
-        text: row.entry ? Diagnostics.plainLabel(row.entry.name, 96) : ""
+        text: root.nameOf(row.entry)
         color: row.pattern ? root.dim : root.contentForeground
         font.bold: true
         elide: Text.ElideRight
       }
       Label {
         width: parent.width
-        text: row.pattern
-          ? "Applies to every host it matches"
+        text: row.pattern ? "Applies to every host it matches"
+          : root.hidden ? Diagnostics.MASKED_TARGET
           : Diagnostics.plainLabel(Diagnostics.hostSubtitle(row.entry), 120)
-        color: root.dim
+        color: root.hidden && !row.pattern ? Qt.darker(root.contentForeground, 2.0) : root.dim
         font.pixelSize: Style.font.bodySmall
+        font.letterSpacing: root.hidden && !row.pattern ? 1 : 0
         elide: Text.ElideMiddle
       }
     }
@@ -856,6 +883,67 @@ Panel {
               text: root.editorOriginal !== "" && root.currentHost
                 ? Diagnostics.shortenPath(root.currentHost.file, root.home) + ":" + root.currentHost.line
                 : "above Host *"
+            }
+            // A recording is something that captures, so it is said in the
+            // urgent color, like the shell's own LIVE badge.
+            Pill {
+              visible: root.hideLocked
+              text: "REC"
+              showDot: true
+              dotColor: Commons.Color.urgent
+              textColor: Commons.Color.urgent
+              color: Util.alpha(Commons.Color.urgent, 0.16)
+            }
+
+            // The one control in the header besides the way back: whether
+            // users, addresses and key paths are on screen. Filled with the
+            // accent while hiding, which is "on"; a lock while a recording
+            // holds it there.
+            Item {
+              width: Style.space(24)
+              height: width
+              anchors.verticalCenter: parent.verticalCenter
+
+              Rectangle {
+                anchors.fill: parent
+                radius: root.rounded ? width / 2 : 0
+                color: root.hidden ? Commons.Color.accent
+                     : eyeMouse.containsMouse ? Util.alpha(root.contentForeground, 0.2) : root.quietFill
+
+                Behavior on color { ColorAnimation { duration: Style.duration(120) } }
+
+                Label {
+                  anchors.centerIn: parent
+                  text: root.hidden ? "\u{F0209}" : "\u{F0208}"
+                  color: root.hidden ? root.surface : root.contentForeground
+                  font.pixelSize: Style.font.icon
+                }
+              }
+              Rectangle {
+                visible: root.hideLocked
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.rightMargin: -Style.space(4)
+                anchors.bottomMargin: -Style.space(4)
+                width: Style.space(13)
+                height: width
+                radius: width / 2
+                color: root.surface
+
+                Label {
+                  anchors.centerIn: parent
+                  text: "\u{F033E}"
+                  color: Commons.Color.urgent
+                  font.pixelSize: Style.font.caption
+                }
+              }
+              MouseArea {
+                id: eyeMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: root.hideLocked ? Qt.ForbiddenCursor : Qt.PointingHandCursor
+                onClicked: if (root.host) root.host.toggleHidden()
+              }
             }
           }
         }
@@ -1145,11 +1233,12 @@ Panel {
             plan: root.currentPlan
             findings: root.host && root.currentHost
               ? Diagnostics.findings(root.currentHost, root.currentEffective, root.agent,
-                                     root.currentProbe, root.host.duplicates, root.home)
+                                     root.currentProbe, root.host.duplicates, root.home, root.hidden)
               : []
             home: root.home
             probing: root.probing
             now: root.now
+            hidden: root.hidden
             foreground: root.contentForeground
             accentColor: root.accentColor
             fontFamily: root.contentFontFamily
@@ -1168,6 +1257,7 @@ Panel {
           fields: root.editorFields
           originalName: root.editorOriginal
           errorText: root.errorText
+          hidden: root.hidden
           foreground: root.contentForeground
           accentColor: root.accentColor
           fontFamily: root.contentFontFamily

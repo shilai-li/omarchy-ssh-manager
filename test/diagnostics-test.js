@@ -262,6 +262,48 @@ check("the header badge reports the last test and nothing more", () => {
      "a pattern is never tested")
 })
 
+// -------------------------------------------------------------- hiding
+
+check("an alias that is an address is not shown while hidden", () => {
+  ok(D.looksLikeAddress("192.168.1.10"))
+  ok(D.looksLikeAddress("fe80::1"))
+  ok(D.looksLikeAddress("10.0.*"), "a pattern of address parts names a network")
+  eq(D.looksLikeAddress("github.com"), false)
+  eq(D.looksLikeAddress("agent-01"), false)
+  eq(D.looksLikeAddress("*"), false)
+
+  eq(D.displayName({ name: "192.168.1.10" }, true, 3), "host 3")
+  eq(D.displayName({ name: "10.0.*", wildcard: true }, true, 7), "pattern 7")
+  eq(D.displayName({ name: "192.168.1.10" }, false, 3), "192.168.1.10")
+  eq(D.displayName({ name: "omarchy" }, true, 1), "omarchy", "a name that is not an address stays")
+})
+
+check("hidden findings keep their meaning and lose the values", () => {
+  const h = {
+    name: "web1", hostName: "10.0.0.1", user: "deploy", identityFiles: ["/home/u/.ssh/web_key"],
+    shadowed: [{ key: "User", value: "root", file: "/home/u/.ssh/config", line: 9,
+                 pattern: "web*", winnerPattern: "web1", winnerValue: "deploy" }]
+  }
+  const eff = D.parseEffective("G\tok\nC\thostname 10.0.0.1\nC\tuser deploy\nI\t/home/u/.ssh/web_key\tno\t\n")
+  const probe = D.parseProbe("T\tfail\nA\tunreachable\nM\tssh: connect to host 10.0.0.1 port 2222: Connection refused\n")
+
+  const shown = D.findings(h, eff, null, probe, [], HOME).map(f => f.text).join("\n")
+  ok(shown.indexOf("10.0.0.1") >= 0 && shown.indexOf("web_key") >= 0, "shown, everything is there")
+
+  const hidden = D.findings(h, eff, null, probe, [], HOME, true).map(f => f.text).join("\n")
+  for (const secret of ["10.0.0.1", "deploy", "root", "web_key", "2222"])
+    eq(hidden.indexOf(secret), -1, secret + " is masked")
+  ok(hidden.indexOf("~/.ssh/config:9") >= 0, "where it is in the file still shows")
+  ok(hidden.indexOf("Connection refused") >= 0, "and what went wrong")
+})
+
+check("hiding searches names only", () => {
+  const hosts = [{ name: "web1", hostName: "10.0.0.1", user: "deploy" }]
+  eq(D.filterHosts(hosts, "10.0").length, 1)
+  eq(D.filterHosts(hosts, "10.0", true).length, 0, "an address typed while hidden finds nothing")
+  eq(D.filterHosts(hosts, "web", true).length, 1)
+})
+
 // ------------------------------------------------------ remembered results
 
 check("a test result survives a round trip through the results file", () => {

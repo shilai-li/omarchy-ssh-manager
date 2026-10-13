@@ -97,6 +97,42 @@ BarWidget {
   property string effectiveHost: ""
   property string probingHost: ""
 
+  // ---- Hiding. Users, addresses, ports and key paths come off the screen,
+  //      for a screen somebody else can see. Two ways in: by hand (the eye
+  //      button, ^h, or "Start hidden"), and while omarchy records the screen,
+  //      which also locks it so it cannot be undone mid-recording. Lives here
+  //      rather than on the panel so every monitor agrees.
+  property bool hiddenByUser: false
+  property bool recording: false
+  property bool startApplied: false
+  // The two settings, as saved in shell.json. `omarchy bar set` without
+  // --json stores a string, so "true" counts as true.
+  function flag(name, fallback) {
+    var value = root.setting(name, fallback)
+    return value === true || value === "true"
+  }
+  readonly property bool hideWhileRecording: root.flag("hideWhileRecording", true)
+  readonly property bool startHidden: root.flag("startHidden", false)
+  readonly property bool hideLocked: root.hideWhileRecording && root.recording
+  readonly property bool hidden: root.hiddenByUser || root.hideLocked
+
+  function toggleHidden() {
+    if (root.hideLocked) return
+    root.hiddenByUser = !root.hiddenByUser
+  }
+
+  // "Start hidden" is a starting point, read once: after that the switch is
+  // the user's, and a settings reload must not flip it back under them.
+  function applyStartHidden() {
+    if (root.startApplied || !root.settings) return
+    root.startApplied = true
+    if (root.flag("startHidden", false)) root.hiddenByUser = true
+  }
+
+  function checkRecording() {
+    if (!recordingProc.running) recordingProc.running = true
+  }
+
   // The clock remembered results are aged against. It only has to be right to
   // the minute, and only while somebody is looking.
   property real now: Math.floor(Date.now() / 1000)
@@ -462,11 +498,16 @@ BarWidget {
   implicitHeight: button.implicitHeight
 
   onBarChanged: injectPanel()
-  onSettingsChanged: injectPanel()
+  onSettingsChanged: {
+    root.injectPanel()
+    root.applyStartHidden()
+  }
 
   Component.onCompleted: {
     root.refresh()
     resultsReadProc.running = true
+    root.applyStartHidden()
+    root.checkRecording()
   }
 
   // Nothing this widget started outlives it. A bar surface is torn down and
@@ -482,6 +523,7 @@ BarWidget {
     probeProc.running = false
     resultsReadProc.running = false
     resultsWriteProc.running = false
+    recordingProc.running = false
   }
 
   // A helper that never comes back must not become a process that lives as
@@ -619,6 +661,29 @@ BarWidget {
     onTriggered: root.tick()
   }
 
+  // Whether omarchy is recording, asked while the panel is up — the only
+  // time anything is on screen to hide. Unknown counts as not recording.
+  Process {
+    id: recordingProc
+    command: root.script("recording.sh")
+    environment: root.trustedEnv
+    stdout: StdioCollector { id: recordingOut; waitForEnd: true }
+    onExited: {
+      var list = recordingOut.text.split("\n")
+      var on = false
+      for (var i = 0; i < list.length; i++) if (list[i] === "R\ton") on = true
+      root.recording = on
+    }
+  }
+
+  Timer {
+    interval: 3000
+    repeat: true
+    running: root.opened && root.hideWhileRecording
+    triggeredOnStart: true
+    onTriggered: root.checkRecording()
+  }
+
   Deadline { proc: readProc; what: "Reading " + root.configPath }
   Deadline { proc: writeProc; what: "Writing " + root.configPath }
   Deadline { proc: statProc; what: "Checking " + root.configPath }
@@ -628,6 +693,7 @@ BarWidget {
   Deadline { proc: probeProc; what: "Testing the host" }
   Deadline { proc: resultsReadProc; what: "Reading the remembered results" }
   Deadline { proc: resultsWriteProc; what: "Saving the test results" }
+  Deadline { proc: recordingProc; what: "Checking for a screen recording" }
 
   Loader {
     id: panelLoader
@@ -666,6 +732,14 @@ BarWidget {
     }
 
     function status(): string { return root.statusJson() }
+
+    // Hide only. Anything on this machine can reach the socket, and taking
+    // the details off a screen is safe for it to do; putting them back on a
+    // screen that may be shared is a thing for the person at the keyboard.
+    function hideDetails(): string {
+      root.hiddenByUser = true
+      return "details hidden"
+    }
   }
 
   BarIconButton {
@@ -673,7 +747,8 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     text: root.glyph
-    tooltipText: root.hostCount === 1 ? "1 SSH host" : root.hostCount + " SSH hosts"
+    tooltipText: (root.hostCount === 1 ? "1 SSH host" : root.hostCount + " SSH hosts")
+      + (root.hidden ? "\nDetails hidden" : "")
 
     onPressed: function(b) { root.togglePanel() }
   }

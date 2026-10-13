@@ -456,4 +456,13 @@ check("results.sh will not read or write past its ceiling", () => {
   fs.rmSync(home, { recursive: true, force: true })
 })
 
+// ---------------------------------------------------------- recording.sh
+
+check("recording.sh answers yes, no or unknown, and nothing else", () => {
+  const home = sandbox()
+  const out = run("recording.sh", [], home)
+  ok(/^R\t(on|off|unknown)\n$/.test(out), "one record: " + JSON.stringify(out))
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
 report("scripts")

@@ -18,7 +18,23 @@
     "category": "Utilities",
     "allowMultiple": false,
     "defaultSection": "right",
-    "defaults": {},
-    "schema": []
+    "defaults": {
+      "startHidden": false,
+      "hideWhileRecording": true
+    },
+    "schema": [
+      {
+        "key": "startHidden",
+        "type": "boolean",
+        "label": "Start with users, addresses and key paths hidden",
+        "defaultValue": false
+      },
+      {
+        "key": "hideWhileRecording",
+        "type": "boolean",
+        "label": "Hide them while Omarchy records the screen",
+        "defaultValue": true
+      }
+    ]
   }
 }
