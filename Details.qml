@@ -25,6 +25,7 @@ Item {
   property var findings: []
   property string home: ""
   property bool probing: false
+  property real now: 0
 
   property color foreground: Commons.Color.foreground
   property color accentColor: Commons.Color.accent
@@ -96,7 +97,8 @@ Item {
   readonly property string testSummary: {
     if (root.probing) return "Testing…"
     var badge = Diagnostics.hostBadge(root.host, root.probe)
-    return badge.text
+    var age = root.probe ? Diagnostics.ageText(root.probe.at, root.now) : ""
+    return age === "" ? badge.text : badge.text + " · " + age
   }
 
   readonly property var shortLabels: ({

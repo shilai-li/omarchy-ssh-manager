@@ -464,7 +464,8 @@ function hostSubtitle(host) {
 
 // What the list says beside a host, which is nothing unless something is
 // wrong. The status square already shows how the last test went; a working
-// host does not need a sentence saying so.
+// host does not need a sentence saying so, and how old an answer is belongs
+// in the details, beside the button that refreshes it.
 function rowProblem(host, probe) {
   if (!host || host.wildcard || !probe || !probe.tested) return ""
   if (probe.auth === "ok") return ""
@@ -483,6 +484,78 @@ function hostState(probe) {
   if (probe.auth === "" && probe.tcp === "ok") return STATE_OK
   if (probe.tcp === "ok") return STATE_WARN
   return STATE_BAD
+}
+
+// ------------------------------------------------------ remembered results
+//
+// The last test of each host, kept across shell restarts by bin/results.sh.
+// One line per host: `R <unix-seconds> <tcp> <auth> <alias>`, tab-separated,
+// alias last. Only outcome codes are kept — never ssh's message, which can
+// quote an address — and every field is checked on the way back in, because
+// the file is somewhere anything running as this user can write.
+
+var RESULT_MAX_AGE = 30 * 24 * 3600
+var RESULT_MAX_COUNT = 1024
+var TCP_CODES = ["ok", "fail", "proxy", "unknown", ""]
+var AUTH_CODES = ["ok", "denied", "hostkey", "unreachable", "error", ""]
+
+function validAlias(name) {
+  return typeof name === "string" && name.length > 0 && name.length <= 256 && !/[\s\u0000-\u001f\u007f]/.test(name)
+}
+
+// Only tested hosts with a time, and only the aliases still in the config:
+// a host that was removed should not be remembered on its behalf.
+function serializeResults(probes, aliases) {
+  var keep = null
+  if (aliases) {
+    keep = {}
+    for (var a = 0; a < aliases.length; a++) keep[":" + aliases[a]] = true
+  }
+  var lines = []
+  for (var key in probes) {
+    if (lines.length >= RESULT_MAX_COUNT) break
+    var probe = probes[key]
+    var alias = key.slice(1)
+    if (!probe || !probe.tested || !(probe.at > 0)) continue
+    if (keep && !keep[key]) continue
+    if (!validAlias(alias)) continue
+    if (TCP_CODES.indexOf(probe.tcp) < 0 || AUTH_CODES.indexOf(probe.auth) < 0) continue
+    lines.push(["R", Math.floor(probe.at), probe.tcp, probe.auth, alias].join("\t"))
+  }
+  return lines.length > 0 ? lines.join("\n") + "\n" : ""
+}
+
+// Anything malformed, from the future, or older than a month is dropped
+// rather than shown: a remembered "Authenticated" is only worth showing while
+// it is a recent fact.
+function parseResults(text, now) {
+  var out = {}
+  var count = 0
+  var lines = String(text === undefined || text === null ? "" : text).split("\n")
+  for (var i = 0; i < lines.length && count < RESULT_MAX_COUNT; i++) {
+    var fields = lines[i].split("\t")
+    if (fields.length !== 5 || fields[0] !== "R") continue
+    if (!/^[0-9]{1,12}$/.test(fields[1])) continue
+    var at = Number(fields[1])
+    if (at > now + 300 || now - at > RESULT_MAX_AGE) continue
+    if (TCP_CODES.indexOf(fields[2]) < 0 || AUTH_CODES.indexOf(fields[3]) < 0) continue
+    if (fields[2] === "" && fields[3] === "") continue
+    if (!validAlias(fields[4])) continue
+    out[":" + fields[4]] = { tcp: fields[2], auth: fields[3], message: "", tested: true, at: at, remembered: true }
+    count++
+  }
+  return out
+}
+
+// How long ago, in the fewest words. Nothing for the last minute: a result
+// that just arrived does not need a timestamp to be believed.
+function ageText(at, now) {
+  if (!(at > 0) || !(now > 0)) return ""
+  var seconds = Math.max(0, now - at)
+  if (seconds < 60) return ""
+  if (seconds < 3600) return Math.floor(seconds / 60) + " min ago"
+  if (seconds < 48 * 3600) return Math.floor(seconds / 3600) + " h ago"
+  return Math.floor(seconds / 86400) + " d ago"
 }
 
 // The one-word answer in the details header. It is status, so it says what the
@@ -572,6 +645,10 @@ if (typeof module !== "undefined" && module.exports) {
     rowProblem: rowProblem,
     hostState: hostState,
     hostBadge: hostBadge,
+    serializeResults: serializeResults,
+    parseResults: parseResults,
+    ageText: ageText,
+    RESULT_MAX_AGE: RESULT_MAX_AGE,
     orderHosts: orderHosts,
     filterHosts: filterHosts,
     clampIndex: clampIndex,

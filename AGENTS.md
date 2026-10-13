@@ -69,6 +69,7 @@ bin/scan.sh           the config as ssh reads it, Includes expanded in place
 bin/effective.sh      ssh -G, plus which identity files exist and their fingerprints
 bin/probe.sh          TCP reachability and authentication, without a session
 bin/agent.sh          ssh-add -l, bounded, with its exit status intact
+bin/results.sh        the last test of each host, remembered across restarts
 test/test.sh          everything, under plain node
 ```
 
@@ -154,6 +155,15 @@ and asks. A request that is never agreed to is cleared when the panel closes.
 **Unknown is a state.** An untested host is `–`, not `✓`. `parseProbe` sets
 `tested` only when a record actually arrived, and every checklist row
 distinguishes "we asked and it failed" from "we never asked".
+
+**A remembered result is an old answer, not a new one.** The last test of each
+host is kept by `bin/results.sh` under `$XDG_STATE_HOME/shilai_li.ssh-manager/`
+so a shell restart does not turn every host back into `–`. It is never a
+reason to touch the network: it is shown with its age, dropped after 30 days,
+and forgotten when its host is edited or removed, and only `t` asks the host
+again. The file holds alias, outcome codes and time — never ssh's message,
+which can quote an address — and `parseResults` re-validates every field,
+because the file is as writable by a local peer as `~/.ssh/config` is.
 
 **Shape carries status, not only color.** Themes may define `urgent` as any
 color, and several map it to the same hue as the accent. The row squares and
@@ -251,9 +261,10 @@ widget silently fails to appear.
 1. Read the real file before writing. `ssh_config(5)` and the shell's own
    panels answer most "how should this behave".
 2. No new dependencies. QML + Quickshell + the shell's singletons + OpenSSH.
-3. Plugins run unsandboxed. The only file this plugin may write is
-   `~/.ssh/config`, and only through `SshConfig.upsertHost`/`removeHost`. No
-   network, no `sudo`, no writes anywhere else, ever.
+3. Plugins run unsandboxed. This plugin writes two files and no others:
+   `~/.ssh/config`, only through `SshConfig.upsertHost`/`removeHost`, and the
+   remembered results, only through `bin/results.sh`. No network, no `sudo`,
+   no writes anywhere else, ever.
 4. Never weaken an ssh option to make a test pass. If a probe cannot answer
    safely, it reports `unknown`.
 5. Any new open, spawn or capture goes through `bin/guard.sh`. If a new script

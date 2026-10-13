@@ -50,6 +50,7 @@ Panel {
   // A test asked for over the IPC socket arrives as a name sitting here,
   // never as a connection. Nothing has touched the network yet when it does.
   readonly property string probeRequest: host ? host.probeRequest : ""
+  readonly property real now: host ? host.now : 0
 
   property string view: "list"
   property string filterText: ""
@@ -1148,6 +1149,7 @@ Panel {
               : []
             home: root.home
             probing: root.probing
+            now: root.now
             foreground: root.contentForeground
             accentColor: root.accentColor
             fontFamily: root.contentFontFamily

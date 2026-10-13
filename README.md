@@ -72,7 +72,9 @@ The widget lands on the right of the bar. Move it with `omarchy bar move`.
 omarchy plugin remove shilai_li.ssh-manager
 ```
 
-Nothing else to clean up: this plugin keeps no state of its own.
+The one thing it keeps of its own is the last test result of each host, in
+`~/.local/state/shilai_li.ssh-manager/` — remove that directory too if you want
+it gone.
 
 ---
 
@@ -102,6 +104,13 @@ connection.
 The list keeps to what you need to pick a host: its status square, its name and
 `user@address`, and words only when something is wrong (`Unreachable`, `Key
 refused`). `↑↓` and `^t` work without being listed.
+
+The last result of each test is remembered, so restarting the shell does not
+turn every host back into "not tested". How old it is shows in the host's
+details, on the Test tile (`Authenticated · 2 h ago`), and it is never
+refreshed on its own: press `t` to ask the host again. Results are dropped after 30 days, and forgotten when you edit
+or remove the host. What is kept is only the alias, the outcome and the time,
+in a `0600` file in a `0700` directory under `~/.local/state`.
 
 | Key | |
 |---|---|
@@ -162,7 +171,8 @@ about the agent. This list is the keys that are really there, in the order ssh
 will offer them, each marked `on disk`, `in agent`, or `missing`.
 
 A dash in the checklist means *not asked*, never *fine*. `Host reachable` and
-`Authentication` stay dashed until you press `t`.
+`Authentication` stay dashed until you press `t`, or until a remembered result
+from an earlier session fills them in.
 
 An ssh-agent is optional, and not running one is not a fault. The agent counts
 only where it is the source of a host's key, and that shows in `Key available`.
@@ -265,6 +275,7 @@ bin/probe.sh myhost                # TCP reachability and authentication
 bin/agent.sh                       # what the ssh-agent is holding
 bin/config-read.sh ~/.ssh/config   # the file, if it is safe to read
 bin/config-write.sh ~/.ssh/config <digest>   # replace it, against that digest
+bin/results.sh read ~/.local/state/shilai_li.ssh-manager/results   # remembered tests
 ```
 
 `effective.sh` and `probe.sh` take an optional trailing config path (`-F`),

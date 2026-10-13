@@ -33,6 +33,7 @@ export LC_ALL
 # Ceilings are constants on purpose: an environment variable that could raise
 # them would be one more thing to have to trust.
 readonly SSHM_MAX_FILE_BYTES=1048576      # one config file, main or included
+readonly SSHM_MAX_RESULTS_BYTES=262144    # the remembered test results
 readonly SSHM_MAX_TOTAL_BYTES=4194304     # everything one scan may emit
 readonly SSHM_MAX_LINES=100000            # records one scan may emit
 readonly SSHM_MAX_LINE_BYTES=4096         # one line, before it is split

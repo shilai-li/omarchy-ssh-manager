@@ -262,6 +262,59 @@ check("the header badge reports the last test and nothing more", () => {
      "a pattern is never tested")
 })
 
+// ------------------------------------------------------ remembered results
+
+check("a test result survives a round trip through the results file", () => {
+  const now = 1760000000
+  const probes = { ":web1": Object.assign(D.parseProbe("T\tok\nA\tok\nM\tssh: connect to 10.0.0.1\n"), { at: now - 7200 }) }
+  const text = D.serializeResults(probes, ["web1"])
+  eq(text, "R\t" + (now - 7200) + "\tok\tok\tweb1\n")
+  ok(text.indexOf("10.0.0.1") < 0, "ssh's message, which can quote an address, is not kept")
+
+  const back = D.parseResults(text, now)
+  eq(back[":web1"].auth, "ok")
+  eq(back[":web1"].tested, true)
+  eq(back[":web1"].remembered, true)
+  eq(D.hostState(back[":web1"]), D.STATE_OK, "a remembered result reads like a fresh one")
+})
+
+check("only hosts still in the config are remembered", () => {
+  const now = 1760000000
+  const probes = {
+    ":kept": { tested: true, at: now, tcp: "ok", auth: "ok" },
+    ":removed": { tested: true, at: now, tcp: "fail", auth: "unreachable" },
+    ":never": { tested: false, at: now, tcp: "", auth: "" }
+  }
+  eq(Object.keys(D.parseResults(D.serializeResults(probes, ["kept", "never"]), now)), [":kept"])
+  eq(Object.keys(D.parseResults(D.serializeResults(probes, null), now)).length, 2,
+     "with no host list to go by, nothing is pruned")
+})
+
+check("the results file is not trusted", () => {
+  const now = 1760000000
+  const text = [
+    "R\t" + now + "\tok\tok\tgood",
+    "R\t" + (now + 86400) + "\tok\tok\tfuture",
+    "R\t" + (now - D.RESULT_MAX_AGE - 1) + "\tok\tok\tancient",
+    "R\t" + now + "\tok\tpwned\tbadcode",
+    "R\tsoon\tok\tok\tbadtime",
+    "R\t" + now + "\tok\tok\ttwo words",
+    "R\t" + now + "\tok\tok\textra\tfield",
+    "X\t" + now + "\tok\tok\twrongkind",
+    "garbage"
+  ].join("\n")
+  eq(Object.keys(D.parseResults(text, now)), [":good"])
+})
+
+check("a remembered result says how old it is", () => {
+  const now = 1760000000
+  eq(D.ageText(now - 30, now), "", "not for the last minute")
+  eq(D.ageText(now - 5 * 60, now), "5 min ago")
+  eq(D.ageText(now - 3 * 3600, now), "3 h ago")
+  eq(D.ageText(now - 3 * 86400, now), "3 d ago")
+  eq(D.ageText(0, now), "")
+})
+
 check("state is legible without color", () => {
   // Several themes map `urgent` to the same hue as the accent, so the four
   // states have to differ in shape too.

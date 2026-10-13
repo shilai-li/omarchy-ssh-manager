@@ -11,7 +11,8 @@ import "Diagnostics.js" as Diagnostics
 // Everything this plugin knows comes from the system ssh client: `ssh -G` for
 // the effective configuration, `ssh -o BatchMode=yes` for authentication,
 // `ssh-add -l` for the agent. No SSH is implemented here, no credential is
-// ever read, and the only file written is the user's own ~/.ssh/config.
+// ever read, and the only files written are the user's own ~/.ssh/config and
+// the last test result of each host, kept so a restart does not forget them.
 //
 // Panel.qml, Details.qml and Editor.qml are read-outs of this widget and call
 // back into it, so a two-monitor desktop cannot end up with two disagreeing
@@ -37,6 +38,15 @@ BarWidget {
 
   readonly property string home: Quickshell.env("HOME")
   readonly property string configPath: home + "/.ssh/config"
+
+  // Where the last test of each host is remembered, so a shell restart does
+  // not forget that a host was reachable an hour ago. XDG_STATE_HOME only
+  // counts when it is absolute, as the spec requires.
+  readonly property string resultsPath: {
+    var state = Quickshell.env("XDG_STATE_HOME") || ""
+    if (state.charAt(0) !== "/") state = root.home + "/.local/state"
+    return state + "/shilai_li.ssh-manager/results"
+  }
 
   // The scripts ship next to this file. Deriving the directory from the QML
   // URL keeps the plugin working wherever it is installed, rather than
@@ -86,6 +96,11 @@ BarWidget {
   property var probes: ({})
   property string effectiveHost: ""
   property string probingHost: ""
+
+  // The clock remembered results are aged against. It only has to be right to
+  // the minute, and only while somebody is looking.
+  property real now: Math.floor(Date.now() / 1000)
+  function tick() { root.now = Math.floor(Date.now() / 1000) }
 
   readonly property int hostCount: {
     var n = 0
@@ -199,9 +214,71 @@ BarWidget {
   function applyProbe(text) {
     var next = ({})
     for (var key in root.probes) next[key] = root.probes[key]
-    next[":" + root.probingHost] = Diagnostics.parseProbe(text)
+    var result = Diagnostics.parseProbe(text)
+    root.tick()
+    result.at = root.now
+    next[":" + root.probingHost] = result
     root.probes = next
     root.probingHost = ""
+    root.saveResults()
+  }
+
+  // ---- Remembered results. Read once when the widget starts, written after
+  //      every test. Nothing here touches the network: a remembered result is
+  //      shown with its age, and only `t` asks the host again.
+  property bool resultsLoaded: false
+  property bool resultsDirty: false
+  property string pendingResults: ""
+
+  // A test this session already ran is newer than anything on disk, so the
+  // file only fills in hosts nobody has asked about yet.
+  function applyResults(text, statusText) {
+    var status = Diagnostics.parseIoStatus(statusText)
+    if (status.state === "ok") {
+      root.tick()
+      var remembered = Diagnostics.parseResults(text, root.now)
+      var next = ({})
+      var key
+      for (key in remembered) next[key] = remembered[key]
+      for (key in root.probes) next[key] = root.probes[key]
+      root.probes = next
+    }
+    root.resultsLoaded = true
+    if (root.resultsDirty) root.saveResults()
+  }
+
+  // Only the aliases in the config right now are kept, so a removed host is
+  // not remembered on its behalf — unless the config could not be read, in
+  // which case an empty host list says nothing and pruning by it would wipe
+  // every result.
+  function saveResults() {
+    if (!root.resultsLoaded || resultsWriteProc.running) {
+      root.resultsDirty = true
+      return
+    }
+    root.resultsDirty = false
+    var aliases = null
+    if (root.configState === "ok" || root.configState === "missing") {
+      aliases = []
+      for (var i = 0; i < root.hosts.length; i++) if (!root.hosts[i].wildcard) aliases.push(root.hosts[i].name)
+    }
+    root.pendingResults = Diagnostics.serializeResults(root.probes, aliases)
+    resultsWriteProc.command = root.script("results.sh").concat(["write", root.resultsPath])
+    resultsWriteProc.running = true
+  }
+
+  // An edited host may point somewhere else now, so what the last test found
+  // no longer describes it.
+  function forget(names) {
+    var next = ({})
+    var changed = false
+    for (var key in root.probes) {
+      if (names.indexOf(key.slice(1)) >= 0) { changed = true; continue }
+      next[key] = root.probes[key]
+    }
+    if (!changed) return
+    root.probes = next
+    root.saveResults()
   }
 
   function planFor(name) {
@@ -223,7 +300,9 @@ BarWidget {
       return false
     }
     root.errorText = ""
-    return root.write(result.text)
+    if (!root.write(result.text)) return false
+    root.forget([originalName, String(fields.Host || "").replace(/^\s+|\s+$/g, "")])
+    return true
   }
 
   function removeHost(name) {
@@ -233,7 +312,9 @@ BarWidget {
       return false
     }
     root.errorText = ""
-    return root.write(result.text)
+    if (!root.write(result.text)) return false
+    root.forget([name])
+    return true
   }
 
   function write(text) {
@@ -383,7 +464,10 @@ BarWidget {
   onBarChanged: injectPanel()
   onSettingsChanged: injectPanel()
 
-  Component.onCompleted: root.refresh()
+  Component.onCompleted: {
+    root.refresh()
+    resultsReadProc.running = true
+  }
 
   // Nothing this widget started outlives it. A bar surface is torn down and
   // rebuilt on a monitor change, a theme reload or a plugin update, and a
@@ -396,6 +480,8 @@ BarWidget {
     agentProc.running = false
     effProc.running = false
     probeProc.running = false
+    resultsReadProc.running = false
+    resultsWriteProc.running = false
   }
 
   // A helper that never comes back must not become a process that lives as
@@ -496,6 +582,43 @@ BarWidget {
     onExited: root.applyProbe(probeOut.text)
   }
 
+  Process {
+    id: resultsReadProc
+    command: root.script("results.sh").concat(["read", root.resultsPath])
+    environment: root.trustedEnv
+    stdout: StdioCollector { id: resultsOut; waitForEnd: true }
+    stderr: StdioCollector { id: resultsStatus; waitForEnd: true }
+    onExited: root.applyResults(resultsOut.text, resultsStatus.text)
+  }
+
+  // Length-prefixed over stdin, like the config: the pipe stays open, so the
+  // helper is told how much is coming rather than waiting for end-of-file.
+  // A failed save is not worth an error on screen — the results are still in
+  // memory, and the next test tries again.
+  Process {
+    id: resultsWriteProc
+    environment: root.trustedEnv
+    stdinEnabled: true
+    stdout: StdioCollector { waitForEnd: true }
+    onStarted: {
+      var text = root.pendingResults
+      resultsWriteProc.write(String(SshConfig.utf8Length(text)) + "\n")
+      resultsWriteProc.write(text)
+    }
+    onExited: {
+      root.pendingResults = ""
+      if (root.resultsDirty) Qt.callLater(root.saveResults)
+    }
+  }
+
+  Timer {
+    interval: 30000
+    repeat: true
+    running: root.opened
+    triggeredOnStart: true
+    onTriggered: root.tick()
+  }
+
   Deadline { proc: readProc; what: "Reading " + root.configPath }
   Deadline { proc: writeProc; what: "Writing " + root.configPath }
   Deadline { proc: statProc; what: "Checking " + root.configPath }
@@ -503,6 +626,8 @@ BarWidget {
   Deadline { proc: agentProc; what: "Asking the ssh-agent" }
   Deadline { proc: effProc; what: "Asking ssh what it would do" }
   Deadline { proc: probeProc; what: "Testing the host" }
+  Deadline { proc: resultsReadProc; what: "Reading the remembered results" }
+  Deadline { proc: resultsWriteProc; what: "Saving the test results" }
 
   Loader {
     id: panelLoader

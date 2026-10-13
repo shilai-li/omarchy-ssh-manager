@@ -383,4 +383,77 @@ check("a round trip through both scripts is byte-identical", () => {
   fs.rmSync(home, { recursive: true, force: true })
 })
 
+// ------------------------------------------------------------ results.sh
+
+function stateHome() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ssh-manager-test-"))
+  fs.mkdirSync(path.join(home, ".local", "state"), { recursive: true, mode: 0o755 })
+  return { home, file: path.join(home, ".local", "state", "shilai_li.ssh-manager", "results") }
+}
+
+check("results.sh remembers results at 0600 in a 0700 directory", () => {
+  const { home, file } = stateHome()
+  const text = "R\t1760000000\tok\tok\tweb1\n"
+
+  const write = runIo("results.sh", ["write", file], home, framed(text))
+  eq(write.status.state, "ok")
+  eq(fs.statSync(path.dirname(file)).mode & 0o777, 0o700)
+  eq(fs.statSync(file).mode & 0o777, 0o600)
+
+  const read = runIo("results.sh", ["read", file], home)
+  eq(read.status.state, "ok")
+  eq(read.out, text, "byte for byte")
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+check("nothing remembered yet is a state, not a failure", () => {
+  const { home, file } = stateHome()
+  const read = runIo("results.sh", ["read", file], home)
+  eq(read.status.state, "missing")
+  eq(read.out, "")
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+check("results.sh neither reads nor writes through a symlink", () => {
+  const { home, file } = stateHome()
+  fs.mkdirSync(path.dirname(file), { mode: 0o700 })
+  const target = path.join(home, "target")
+  fs.writeFileSync(target, "R\t1760000000\tok\tok\tplanted\n")
+  fs.symlinkSync(target, file)
+
+  const read = runIo("results.sh", ["read", file], home)
+  eq(read.status.state, "rejected")
+  eq(read.out, "", "nothing of the target leaks out")
+
+  const write = runIo("results.sh", ["write", file], home, framed("R\t1\tok\tok\tmine\n"))
+  eq(write.status.state, "rejected", "as config-write.sh does")
+  eq(fs.readFileSync(target, "utf8"), "R\t1760000000\tok\tok\tplanted\n", "the file it pointed at is untouched")
+
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+check("results.sh refuses a directory it does not own outright", () => {
+  const { home, file } = stateHome()
+  fs.mkdirSync(path.dirname(file), { mode: 0o777 })
+  fs.chmodSync(path.dirname(file), 0o777)
+  const write = runIo("results.sh", ["write", file], home, framed("R\t1\tok\tok\tmine\n"))
+  eq(write.status.state, "rejected")
+  ok(!fs.existsSync(file))
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+check("results.sh will not read or write past its ceiling", () => {
+  const { home, file } = stateHome()
+  fs.mkdirSync(path.dirname(file), { mode: 0o700 })
+  fs.writeFileSync(file, "x".repeat(512 * 1024), { mode: 0o600 })
+  eq(runIo("results.sh", ["read", file], home).status.state, "rejected")
+
+  const write = runIo("results.sh", ["write", file], home, (1024 * 1024) + "\n")
+  eq(write.status.state, "rejected")
+  eq(fs.readdirSync(path.dirname(file)).filter(n => n.indexOf(".results") === 0), [],
+     "no staging file survives a refusal")
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
 report("scripts")
