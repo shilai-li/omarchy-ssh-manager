@@ -465,4 +465,18 @@ check("recording.sh answers yes, no or unknown, and nothing else", () => {
   fs.rmSync(home, { recursive: true, force: true })
 })
 
+// ------------------------------------------------------------ setting.sh
+//
+// Only refusals are run here: an accepted value goes to omarchy-bar, which
+// writes the real shell.json of whoever runs the suite.
+
+check("setting.sh takes only its own two keys, and only true or false", () => {
+  const home = sandbox()
+  for (const args of [["bogus", "true"], ["startHidden", "yes"], ["hideWhileRecording", "true; rm -rf ~"], []]) {
+    const out = D.parseIoStatus(run("setting.sh", args, home))
+    eq(out.state, "rejected", JSON.stringify(args))
+  }
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
 report("scripts")

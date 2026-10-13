@@ -106,13 +106,27 @@ BarWidget {
   property bool recording: false
   property bool startApplied: false
   // The two settings, as saved in shell.json. `omarchy bar set` without
-  // --json stores a string, so "true" counts as true.
+  // --json stores a string, so "true" counts as true. A switch flipped in the
+  // panel shows at once from `pendingSettings`, until the shell hands the saved
+  // value back.
+  property var pendingSettings: ({})
   function flag(name, fallback) {
+    if (name in root.pendingSettings) return root.pendingSettings[name] === true
     var value = root.setting(name, fallback)
     return value === true || value === "true"
   }
   readonly property bool hideWhileRecording: root.flag("hideWhileRecording", true)
   readonly property bool startHidden: root.flag("startHidden", false)
+
+  function saveSetting(name, value) {
+    if (settingProc.running) return
+    var next = ({})
+    for (var key in root.pendingSettings) next[key] = root.pendingSettings[key]
+    next[name] = value === true
+    root.pendingSettings = next
+    settingProc.command = root.script("setting.sh").concat([name, value === true ? "true" : "false"])
+    settingProc.running = true
+  }
   readonly property bool hideLocked: root.hideWhileRecording && root.recording
   readonly property bool hidden: root.hiddenByUser || root.hideLocked
 
@@ -501,6 +515,11 @@ BarWidget {
   onSettingsChanged: {
     root.injectPanel()
     root.applyStartHidden()
+    // What the shell just handed over is the saved truth. Cleared after this
+    // notification has finished: clearing it inside would re-notify the
+    // bindings that read both while they are still being re-evaluated.
+    if (Object.keys(root.pendingSettings).length > 0)
+      Qt.callLater(function() { root.pendingSettings = ({}) })
   }
 
   Component.onCompleted: {
@@ -524,6 +543,7 @@ BarWidget {
     resultsReadProc.running = false
     resultsWriteProc.running = false
     recordingProc.running = false
+    settingProc.running = false
   }
 
   // A helper that never comes back must not become a process that lives as
@@ -676,6 +696,19 @@ BarWidget {
     }
   }
 
+  // A save that failed puts the switch back where the file says it is.
+  Process {
+    id: settingProc
+    environment: root.trustedEnv
+    stdout: StdioCollector { id: settingOut; waitForEnd: true }
+    onExited: {
+      if (Diagnostics.parseIoStatus(settingOut.text).state !== "ok") {
+        root.pendingSettings = ({})
+        root.errorText = "Could not save the setting"
+      }
+    }
+  }
+
   Timer {
     interval: 3000
     repeat: true
@@ -694,6 +727,7 @@ BarWidget {
   Deadline { proc: resultsReadProc; what: "Reading the remembered results" }
   Deadline { proc: resultsWriteProc; what: "Saving the test results" }
   Deadline { proc: recordingProc; what: "Checking for a screen recording" }
+  Deadline { proc: settingProc; what: "Saving the setting" }
 
   Loader {
     id: panelLoader

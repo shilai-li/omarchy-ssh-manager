@@ -67,6 +67,15 @@ Panel {
   property var confirming: null
   property var editorFields: null
   property string editorOriginal: ""
+  property int settingsIndex: 0
+
+  // The two switches the Settings view shows, in the order it draws them.
+  readonly property var settingRows: [
+    { key: "hideWhileRecording", label: "Hide while recording",
+      detail: "When Omarchy records the screen, hide them and lock the eye until it stops" },
+    { key: "startHidden", label: "Start hidden",
+      detail: "Hide them every time the shell starts" }
+  ]
 
   readonly property var ordered: Diagnostics.orderHosts(hosts)
   readonly property var rows: Diagnostics.filterHosts(ordered, filterText, hidden)
@@ -140,6 +149,7 @@ Panel {
 
   readonly property string title: {
     if (root.view === "details") return root.nameOf(root.currentHost)
+    if (root.view === "settings") return "Settings"
     if (root.view === "editor") return root.editorOriginal !== ""
       ? "Edit " + root.nameFor(root.editorOriginal) : "New host"
     return "SSH"
@@ -176,6 +186,7 @@ Panel {
     : ["^h", root.hidden ? "show" : "hide"]
 
   readonly property var keyHints: {
+    if (root.view === "settings") return [["↑↓", "move"], ["enter", "switch"], ["esc", "back"]]
     if (root.view === "editor") return [["tab", "next field"], ["enter", "save"], root.hideHint, ["esc", "cancel"]]
     if (root.view === "details") {
       if (root.currentHost && root.currentHost.wildcard)
@@ -274,6 +285,18 @@ Panel {
     // arrival instead of making the user press a key to see the truth.
     if (root.host) root.host.loadEffective(root.currentName)
     Qt.callLater(function() { keys.forceActiveFocus() })
+  }
+
+  function showSettings() {
+    root.view = "settings"
+    root.settingsIndex = 0
+    Qt.callLater(function() { keys.forceActiveFocus() })
+  }
+
+  function toggleSetting(index) {
+    var row = root.settingRows[index]
+    if (!row || !root.host) return
+    root.host.saveSetting(row.key, !root.host[row.key])
   }
 
   function showEditor(fields, original) {
@@ -450,8 +473,10 @@ Panel {
     }
     if (root.view === "editor") return false
 
+    if (ctrl && event.key === Qt.Key_Comma && root.view !== "settings") { root.showSettings(); return true }
+
     if (event.key === Qt.Key_Escape) {
-      if (root.view === "details") root.showList()
+      if (root.view === "details" || root.view === "settings") root.showList()
       else if (root.filterText !== "") root.setFilter("")
       else root.close()
       return true
@@ -461,6 +486,20 @@ Panel {
     if (ctrl && event.key === Qt.Key_E) { root.editCurrent(); return true }
     if (ctrl && event.key === Qt.Key_T) { root.testCurrent(); return true }
     if (ctrl && event.key === Qt.Key_R) { if (root.host) root.host.refresh(); return true }
+
+    if (root.view === "settings") {
+      if (event.key === Qt.Key_Left || event.key === Qt.Key_Backspace) { root.showList(); return true }
+      if (event.key === Qt.Key_Down || event.key === Qt.Key_Up) {
+        root.settingsIndex = Diagnostics.moveIndex(root.settingsIndex, event.key === Qt.Key_Down ? 1 : -1,
+                                                   root.settingRows.length)
+        return true
+      }
+      if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+        root.toggleSetting(root.settingsIndex)
+        return true
+      }
+      return true
+    }
 
     if (root.view === "details") {
       if (event.key === Qt.Key_Left || event.key === Qt.Key_Backspace) { root.showList(); return true }
@@ -895,6 +934,34 @@ Panel {
               color: Util.alpha(Commons.Color.urgent, 0.16)
             }
 
+            // Settings, from the list only: the first page is where you are
+            // when you go looking for them.
+            Item {
+              visible: root.view === "list"
+              width: Style.space(24)
+              height: width
+              anchors.verticalCenter: parent.verticalCenter
+
+              Rectangle {
+                anchors.fill: parent
+                radius: root.rounded ? width / 2 : 0
+                color: gearMouse.containsMouse ? Util.alpha(root.contentForeground, 0.2) : root.quietFill
+
+                Label {
+                  anchors.centerIn: parent
+                  text: "\u{F0493}"
+                  font.pixelSize: Style.font.icon
+                }
+              }
+              MouseArea {
+                id: gearMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.showSettings()
+              }
+            }
+
             // The one control in the header besides the way back: whether
             // users, addresses and key paths are on screen. Filled with the
             // accent while hiding, which is "on"; a lock while a recording
@@ -1206,6 +1273,110 @@ Panel {
             leftPadding: Style.space(4)
             rightPadding: Style.space(4)
             text: "Nothing here touches the network until you test a host."
+            color: root.dim
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+        }
+
+        // ---- Settings. Two switches, saved with the rest of the bar's
+        //      settings so they survive a restart.
+        Column {
+          width: parent.width
+          visible: root.view === "settings"
+          spacing: Style.space(6)
+
+          SectionLabel { text: "HIDING USERS AND ADDRESSES" }
+
+          Card {
+            height: settingList.implicitHeight + Style.space(8)
+
+            Column {
+              id: settingList
+              x: Style.space(4)
+              y: Style.space(4)
+              width: parent.width - Style.space(8)
+
+              Repeater {
+                model: root.view === "settings" ? root.settingRows : []
+
+                CursorSurface {
+                  id: settingRow
+                  required property var modelData
+                  required property int index
+                  readonly property bool on: root.host ? root.host[modelData.key] === true : false
+
+                  width: settingList.width
+                  height: Math.max(root.rowHeight, settingText.implicitHeight) + Style.space(14)
+                  radius: root.innerRadius
+                  hasCursor: root.settingsIndex === settingRow.index
+                  foreground: root.contentForeground
+                  accent: Commons.Color.accent
+                  fill: root.hoverFill
+                  currentFill: root.selectedFill
+
+                  PanelSeparator {
+                    visible: settingRow.index > 0
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.leftMargin: Style.space(12)
+                    width: parent.width - Style.space(12)
+                    foreground: root.contentForeground
+                    strength: 0.08
+                  }
+
+                  MouseArea {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onContainsMouseChanged: if (containsMouse) root.settingsIndex = settingRow.index
+                    onClicked: root.toggleSetting(settingRow.index)
+                  }
+
+                  Column {
+                    id: settingText
+                    anchors.left: parent.left
+                    anchors.leftMargin: Style.space(12)
+                    anchors.right: settingSwitch.left
+                    anchors.rightMargin: Style.space(12)
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Style.space(2)
+
+                    Label {
+                      width: parent.width
+                      text: settingRow.modelData.label
+                      font.bold: true
+                    }
+                    Label {
+                      width: parent.width
+                      text: settingRow.modelData.detail
+                      color: root.dim
+                      font.pixelSize: Style.font.bodySmall
+                      wrapMode: Text.WordWrap
+                    }
+                  }
+
+                  ToggleSwitch {
+                    id: settingSwitch
+                    anchors.right: parent.right
+                    anchors.rightMargin: Style.space(10)
+                    anchors.verticalCenter: parent.verticalCenter
+                    interactive: false
+                    trackHeight: Style.space(18)
+                    checked: settingRow.on
+                    foreground: root.contentForeground
+                  }
+                }
+              }
+            }
+          }
+
+          Label {
+            width: parent.width
+            leftPadding: Style.space(10)
+            rightPadding: Style.space(10)
+            text: "Saved with your other bar settings, so they survive a restart. Only Omarchy's own "
+              + "screen recorder can be seen from here — not a browser or meeting app sharing the screen."
             color: root.dim
             font.pixelSize: Style.font.caption
             wrapMode: Text.WordWrap

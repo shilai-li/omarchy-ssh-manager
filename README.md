@@ -123,6 +123,7 @@ in a `0600` file in a `0700` directory under `~/.local/state`.
 | `delete` | remove the selected host (asks first) |
 | anything else | filters the list |
 | `^h` | hide or show users, addresses and key paths |
+| `^,` | settings |
 | `esc` | clear the filter, then close |
 
 **Left click** a row to connect, **right click** for details.
@@ -206,15 +207,15 @@ works, and `^h` shows them before you save. Connecting and testing use the
 real values; only the screen changes. The terminal a connection opens is ssh's
 own, and may print the address.
 
-Two settings, set with `omarchy bar set shilai_li.ssh-manager <setting> true|false`:
+Two settings, behind the gear in the list header (or `^,`):
 
 | Setting | |
 |---|---|
-| `startHidden` | hide every time the shell starts (off by default) |
-| `hideWhileRecording` | on while Omarchy records the screen, and locked until it stops (on by default) |
+| Start hidden | hide every time the shell starts (off by default) |
+| Hide while recording | on while Omarchy records the screen, and locked until it stops (on by default) |
 
 Only Omarchy's own recorder can be seen from here; a browser or meeting app
-sharing the screen cannot, which is what `startHidden` is for.
+sharing the screen cannot, which is what *Start hidden* is for.
 
 ### Adding and editing
 

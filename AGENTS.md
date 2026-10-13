@@ -71,6 +71,7 @@ bin/probe.sh          TCP reachability and authentication, without a session
 bin/agent.sh          ssh-add -l, bounded, with its exit status intact
 bin/results.sh        the last test of each host, remembered across restarts
 bin/recording.sh      whether omarchy is recording the screen, for hiding
+bin/setting.sh        save one of this widget's two settings through omarchy-bar
 test/test.sh          everything, under plain node
 ```
 
@@ -273,8 +274,10 @@ widget silently fails to appear.
 2. No new dependencies. QML + Quickshell + the shell's singletons + OpenSSH.
 3. Plugins run unsandboxed. This plugin writes two files and no others:
    `~/.ssh/config`, only through `SshConfig.upsertHost`/`removeHost`, and the
-   remembered results, only through `bin/results.sh`. No network, no `sudo`,
-   no writes anywhere else, ever.
+   remembered results, only through `bin/results.sh`. Its two settings live in
+   the shell's `shell.json` and are changed only by `omarchy-bar set`, through
+   `bin/setting.sh`, which accepts nothing but those two keys as booleans. No
+   network, no `sudo`, no writes anywhere else, ever.
 4. Never weaken an ssh option to make a test pass. If a probe cannot answer
    safely, it reports `unknown`.
 5. Any new open, spawn or capture goes through `bin/guard.sh`. If a new script
