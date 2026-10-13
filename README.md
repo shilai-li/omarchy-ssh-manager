@@ -108,14 +108,12 @@ omarchy
 HostName       192.168.10.175
 User           shilai_li
 Port           22
-IdentityAgent  ~/.bitwarden-ssh-agent.sock
 
 IDENTITIES SSH WILL TRY
-✓ Main Dev Key                                       in agent
+✓ ~/.ssh/id_ed25519                                   on disk
 
 Host reachable                                              ✓
-SSH agent                                          1 key    ✓
-Key available                              in the agent     ✓
+Key available                                   on disk     ✓
 Authentication                                              ✓
 Config valid                                                ✓
 
@@ -132,6 +130,13 @@ will offer them, each marked `on disk`, `in agent`, or `missing`.
 
 A dash in the checklist means *not asked*, never *fine*. `Host reachable` and
 `Authentication` stay dashed until you press `t`.
+
+An ssh-agent is optional, and not running one is not a fault. The agent counts
+only where it is the source of a host's key, and that shows in `Key available`.
+It is mentioned on its own only for a host with `ForwardAgent yes` and no agent
+to forward. A host whose `IdentityAgent` names another socket is never credited
+with the keys in `SSH_AUTH_SOCK`'s agent; its `Key available` stays a dash,
+because nothing here asks that agent what it holds.
 
 | Key | |
 |---|---|

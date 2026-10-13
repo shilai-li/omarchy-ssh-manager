@@ -12,7 +12,6 @@ const EFFECTIVE = [
   "C\tuser deploy",
   "C\thostname 10.0.0.1",
   "C\tport 2222",
-  "C\tidentityagent /run/agent.sock",
   "C\tidentityfile ~/.ssh/id_ed25519",
   "C\tidentityfile ~/.ssh/id_rsa",
   "I\t/home/u/.ssh/id_ed25519\tyes\tSHA256:AAA",
@@ -123,7 +122,6 @@ check("an untested host is unknown, never fine", () => {
   eq(list["Host reachable"], D.STATE_UNKNOWN)
   eq(list["Authentication"], D.STATE_UNKNOWN)
   eq(list["Config valid"], D.STATE_OK)
-  eq(list["SSH agent"], D.STATE_OK)
 })
 
 check("the checklist says what the probe found", () => {
@@ -148,12 +146,36 @@ check("a proxied host is not called unreachable", () => {
   eq(viaProxy["Authentication"], D.STATE_OK)
 })
 
+check("no agent is not a fault in itself", () => {
+  const noAgent = D.parseAgent("", 2)
+  const plan = D.identityPlan(effective, noAgent, ["~/.ssh/id_ed25519"], HOME)
+  const list = D.checklist({ effective: effective, probe: null, agent: noAgent, plan: plan })
+  eq(list.some(item => item.label === "SSH agent"), false, "there is no agent row to fail")
+  eq(states(list)["Key available"], D.STATE_OK, "a key on disk is enough")
+})
+
 check("no agent and no usable key is a finding, not a shrug", () => {
   const none = states(D.checklist({
     effective: effective, probe: null, agent: D.parseAgent("", 2), plan: []
   }))
-  eq(none["SSH agent"], D.STATE_BAD)
   eq(none["Key available"], D.STATE_BAD)
+})
+
+check("IdentityAgent decides whose keys a host gets", () => {
+  const elsewhere = D.parseEffective("G\tok\nC\tidentityagent /run/other.sock\n")
+  eq(D.identityAgent(elsewhere), "/run/other.sock")
+  eq(D.identityPlan(elsewhere, agent, [], HOME).length, 0, "SSH_AUTH_SOCK's keys are not this host's")
+  eq(states(D.checklist({ effective: elsewhere, plan: [] }))["Key available"], D.STATE_UNKNOWN,
+     "an agent we did not ask is not an empty one")
+
+  const off = D.parseEffective("G\tok\nC\tidentityagent none\n")
+  eq(D.identityAgent(off), "none")
+  eq(D.identityPlan(off, agent, [], HOME).length, 0)
+  eq(states(D.checklist({ effective: off, plan: [] }))["Key available"], D.STATE_BAD)
+
+  const session = D.parseEffective("G\tok\nC\tidentityagent SSH_AUTH_SOCK\n")
+  eq(D.identityAgent(session), "", "naming SSH_AUTH_SOCK is the default")
+  eq(D.identityPlan(session, agent, [], HOME).length, 1)
 })
 
 // --------------------------------------------------------------- findings
@@ -198,6 +220,16 @@ check("the probe's own message is passed through, not paraphrased", () => {
   const probe = D.parseProbe("T\tok\nA\tdenied\nM\tPermission denied (publickey).\n")
   const list = D.findings(host, effective, agent, probe, [], HOME)
   ok(list.some(f => f.text === "Permission denied (publickey)."))
+})
+
+check("no agent is only mentioned where a host forwards one", () => {
+  const forwarding = D.parseEffective(EFFECTIVE + "\nC\tforwardagent yes")
+  const noAgent = D.parseAgent("", 2)
+  eq(D.findings(host, effective, noAgent, null, [], HOME).some(f => /agent/i.test(f.text)), false,
+     "a host that never asked for one hears nothing")
+  ok(D.findings(host, forwarding, noAgent, null, [], HOME).some(f => f.text.indexOf("ForwardAgent") >= 0))
+  eq(D.findings(host, forwarding, agent, null, [], HOME).some(f => f.text.indexOf("ForwardAgent") >= 0), false,
+     "not when there is one")
 })
 
 // -------------------------------------------------------------- list view

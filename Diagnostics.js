@@ -229,6 +229,21 @@ function agentHasFingerprint(agent, fingerprint) {
 
 // --------------------------------------------------------- the identity plan
 
+// Which agent ssh asks for this host. `IdentityAgent` overrides SSH_AUTH_SOCK
+// and `none` turns the agent off, so the keys `ssh-add -l` listed belong to a
+// host only when it says neither. Returns "" for the session's agent, "none",
+// or the socket the host names instead — one agent.sh never asked.
+function identityAgent(effective) {
+  var value = effectiveValue(effective, "identityagent", "")
+  if (value === "" || value === "SSH_AUTH_SOCK" || value === "$SSH_AUTH_SOCK") return ""
+  if (value.toLowerCase() === "none") return "none"
+  return value
+}
+
+function hostAgent(effective, agent) {
+  return identityAgent(effective) === "" ? agent : null
+}
+
 // What ssh will actually reach for, in order: the identity files it was told
 // about that exist on disk, then whatever the agent is holding. An identity
 // file that is configured but missing is the single most common reason a
@@ -236,6 +251,7 @@ function agentHasFingerprint(agent, fingerprint) {
 // marked rather than filtered out.
 function identityPlan(effective, agent, configuredPaths, home) {
   var plan = []
+  agent = hostAgent(effective, agent)
   var identities = effective && effective.identities ? effective.identities : []
   var configured = configuredPaths || []
 
@@ -319,14 +335,11 @@ function authState(probe) {
   return { state: STATE_BAD, detail: "failed" }
 }
 
-function agentState(agent) {
-  if (!agent || !agent.checked) return { state: STATE_UNKNOWN, detail: "" }
-  if (!agent.running) return { state: STATE_BAD, detail: "not running" }
-  if (agent.keys.length === 0) return { state: STATE_WARN, detail: "no keys loaded" }
-  return { state: STATE_OK, detail: agent.keys.length + (agent.keys.length === 1 ? " key" : " keys") }
-}
-
-function keyState(plan, agent) {
+// There is no agent row. An agent is one place a key can come from, not a
+// requirement: a user who keeps keys on disk and never runs one has nothing
+// wrong, and a ✗ on every host would teach them to ignore the ✗ that does
+// matter. Where the agent counts, it counts through this row.
+function keyState(plan, effective) {
   var usable = 0
   var loaded = 0
   var missing = 0
@@ -339,9 +352,12 @@ function keyState(plan, agent) {
 
   if (loaded > 0) return { state: STATE_OK, detail: "in the agent" }
   if (usable > 0) return { state: STATE_OK, detail: "on disk" }
+  // An agent we did not ask may well hold the key — a configured IdentityFile
+  // is often only the public half that picks one out of it.
+  var other = identityAgent(effective)
+  if (other !== "" && other !== "none") return { state: STATE_UNKNOWN, detail: "in IdentityAgent" }
   if (missing > 0) return { state: STATE_BAD, detail: "configured key is missing" }
-  if (agent && agent.running && agent.keys.length > 0) return { state: STATE_OK, detail: "in the agent" }
-  return { state: STATE_BAD, detail: "no key ssh can use" }
+  return { state: STATE_BAD, detail: "no key on disk or in an agent" }
 }
 
 function configState(effective) {
@@ -353,13 +369,11 @@ function configState(effective) {
 function checklist(context) {
   var effective = context ? context.effective : null
   var probe = context ? context.probe : null
-  var agent = context ? context.agent : null
   var plan = context ? (context.plan || []) : []
 
   return [
     label("Host reachable", reachableState(probe)),
-    label("SSH agent", agentState(agent)),
-    label("Key available", keyState(plan, agent)),
+    label("Key available", keyState(plan, effective)),
     label("Authentication", authState(probe)),
     label("Config valid", configState(effective))
   ]
@@ -428,8 +442,12 @@ function findings(host, effective, agent, probe, duplicates, home) {
     out.push({ level: STATE_BAD, text: probe.message })
   }
 
-  if (agent && agent.checked && !agent.running) {
-    out.push({ level: STATE_WARN, text: "ssh-agent is not running — only on-disk keys will be offered" })
+  // No agent is only worth saying where this host asked for one. ssh forwards
+  // whatever SSH_AUTH_SOCK names unless IdentityAgent replaced it, so that is
+  // the one case agent.sh's answer covers.
+  if (effectiveValue(effective, "forwardagent", "no") === "yes" && identityAgent(effective) === ""
+      && agent && agent.checked && !agent.running) {
+    out.push({ level: STATE_WARN, text: "ForwardAgent is on, but there is no ssh-agent to forward" })
   }
 
   return out
@@ -534,6 +552,7 @@ if (typeof module !== "undefined" && module.exports) {
     parseProbe: parseProbe,
     parseAgent: parseAgent,
     agentHasFingerprint: agentHasFingerprint,
+    identityAgent: identityAgent,
     identityPlan: identityPlan,
     samePath: samePath,
     normalizePath: normalizePath,

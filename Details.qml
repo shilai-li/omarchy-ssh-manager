@@ -15,7 +15,6 @@ Item {
   property var host: null
   property var effective: null
   property var probe: null
-  property var agent: null
   property var plan: []
   property var findings: []
   property string home: ""
@@ -32,9 +31,15 @@ Item {
   readonly property var checks: Diagnostics.checklist({
     effective: root.effective,
     probe: root.probe,
-    agent: root.agent,
     plan: root.plan
   })
+
+  // A host whose IdentityAgent names another socket gets its keys from an
+  // agent nobody here asked, so an empty list is not the same as no key.
+  readonly property bool otherAgent: {
+    var socket = Diagnostics.identityAgent(root.effective)
+    return socket !== "" && socket !== "none"
+  }
 
   // `ssh -G` is the authority once it has answered; until then the parsed
   // config is a truthful stand-in rather than an empty table.
@@ -171,8 +176,12 @@ Item {
       width: parent.width
       visible: root.plan.length === 0
       textFormat: Text.PlainText
-      text: root.loaded ? "No usable key — nothing on disk, nothing in the agent." : "Asking ssh…"
-      color: root.plan.length === 0 && root.loaded ? Commons.Color.urgent : root.dim
+      text: {
+        if (!root.loaded) return "Asking ssh…"
+        if (root.otherAgent) return "Whatever IdentityAgent holds — not listed here."
+        return "No usable key — nothing on disk, nothing in an agent."
+      }
+      color: root.loaded && !root.otherAgent ? Commons.Color.urgent : root.dim
       font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall
       wrapMode: Text.WordWrap

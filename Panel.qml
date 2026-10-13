@@ -82,7 +82,7 @@ Panel {
 
   readonly property string agentSummary: {
     if (!agent || !agent.checked) return "checking agent…"
-    if (!agent.running) return "ssh-agent: not running"
+    if (!agent.running) return "no ssh-agent"
     if (agent.keys.length === 0) return "ssh-agent: no keys"
     return "ssh-agent: " + agent.keys.length + (agent.keys.length === 1 ? " key" : " keys")
   }
@@ -105,6 +105,7 @@ Panel {
 
   // ---- Lifecycle.
   function open() {
+    root.disarmPointer()
     root.showList()
     root.filterText = ""
     root.cursorActive = true
@@ -162,11 +163,18 @@ Panel {
   }
 
   // ---- Views.
+  // Coming back to the list rebuilds its rows, and the one that appears under
+  // a pointer resting on the panel gets a hover it never asked for. Disarming
+  // the gate first is what keeps the cursor on the host the user just left.
   function showList() {
+    root.disarmPointer()
     root.view = "list"
     root.cancelConfirm()
     root.editorFields = null
-    Qt.callLater(function() { keys.forceActiveFocus() })
+    Qt.callLater(function() {
+      keys.forceActiveFocus()
+      root.ensureVisible()
+    })
   }
 
   function showDetails() {
@@ -205,6 +213,7 @@ Panel {
   }
 
   function focusName(name) {
+    root.disarmPointer()
     for (var i = 0; i < root.rows.length; i++) {
       if (root.rows[i].name === name) {
         root.selectedIndex = i
@@ -266,6 +275,7 @@ Panel {
   onProbeRequestChanged: Qt.callLater(root.considerProbeRequest)
 
   function setFilter(text) {
+    root.disarmPointer()
     root.filterText = text
     root.selectedIndex = 0
     root.cursorActive = true
@@ -274,9 +284,29 @@ Panel {
 
   function moveCursor(delta) {
     if (root.rows.length === 0) return
+    root.disarmPointer()
     root.cursorActive = true
     root.selectedIndex = Diagnostics.moveIndex(root.selectedIndex, delta, root.rows.length)
     root.ensureVisible()
+  }
+
+  // Only a pointer that has actually moved gets to choose a row. Rows that
+  // reflow or are rebuilt under a stationary pointer produce hover events too,
+  // and taking those at face value hands the cursor to whichever row landed
+  // there — the same churn the shell's own menu and clipboard filter out.
+  function disarmPointer() {
+    pointerGate.reset()
+  }
+
+  function selectFromPointer(index, item, mouse) {
+    if (!pointerGate.moved(item, mouse)) return
+    root.cursorActive = true
+    root.selectedIndex = index
+  }
+
+  PointerMoveGate {
+    id: pointerGate
+    referenceItem: keys
   }
 
   // Rows are a fixed height, so the position of the selected one is
@@ -378,10 +408,7 @@ Panel {
       acceptedButtons: Qt.LeftButton | Qt.RightButton
       cursorShape: Qt.PointingHandCursor
 
-      onContainsMouseChanged: if (containsMouse) {
-        root.cursorActive = true
-        root.selectedIndex = row.index
-      }
+      onPositionChanged: function(mouse) { root.selectFromPointer(row.index, row, mouse) }
 
       onClicked: function(mouse) {
         root.selectedIndex = row.index
@@ -504,7 +531,8 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             textFormat: Text.PlainText
             text: root.agentSummary
-            color: root.agent && root.agent.checked && !root.agent.running ? Commons.Color.urgent : root.dimmer
+            // A fact about the session, not a fault: keys on disk work without one.
+            color: root.dimmer
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
           }
@@ -581,7 +609,6 @@ Panel {
             host: root.currentHost
             effective: root.currentEffective
             probe: root.currentProbe
-            agent: root.agent
             plan: root.currentPlan
             findings: root.host && root.currentHost
               ? Diagnostics.findings(root.currentHost, root.currentEffective, root.agent,
