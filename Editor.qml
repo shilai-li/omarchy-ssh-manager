@@ -77,6 +77,9 @@ Item {
   }
 
   onFieldsChanged: root.load()
+  // The panel builds this form on demand, with fields already set, and an
+  // initial value is not a change.
+  Component.onCompleted: root.load()
 
   implicitHeight: column.implicitHeight
 
@@ -88,9 +91,16 @@ Item {
   }
 
   // Every field behaves the same: Tab walks, Enter saves, Esc cancels.
+  //
+  // Only the field being typed in is writable. A writable Qt text field
+  // fetches the full clipboard on every change anywhere on the desktop, just
+  // to know whether a paste would be possible; a read-only one does not ask.
+  // Holding the other four read-only leaves one receiver at most, and only
+  // while the user is in it. Pasting still works where the cursor is.
   component Input: TextField {
     foreground: root.foreground
     accent: root.accentColor
+    readOnly: !activeFocus
 
     onAccepted: root.submit()
     Keys.onEscapePressed: root.canceled()

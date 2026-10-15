@@ -206,6 +206,14 @@ outside-click that would have dismissed it, and the bar reads as frozen.
 Omarchy 4.0.3 turned `centerHoverRevealSuppressed` readonly and did exactly
 that. Order the function so the release is unconditional.
 
+**A text field is a clipboard reader.** Every writable Qt `TextInput` reads
+the whole clipboard on every `QClipboard::dataChanged`, whatever its visibility
+or focus, just to keep `canPaste` current, and Qt's Wayland read has a
+per-chunk timeout but no byte cap or overall deadline. So the editor is
+`Loader`-built only while it is on screen, and each field is `readOnly` unless
+it has focus — a read-only field skips that read. Any new text field follows the
+same two rules.
+
 **Keys are handled by hand, not by `PanelKeyCatcher`.** Typing filters the
 list, and the catcher's `h j k l x` bindings would make half the alphabet
 impossible to type. `Panel.handleKey` returns `false` for anything it does not

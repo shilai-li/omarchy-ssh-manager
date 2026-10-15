@@ -303,7 +303,7 @@ Panel {
     root.editorFields = fields
     root.editorOriginal = original
     root.view = "editor"
-    Qt.callLater(function() { editor.focusFirst() })
+    Qt.callLater(function() { if (editorLoader.item) editorLoader.item.focusFirst() })
   }
 
   function editCurrent() {
@@ -1421,19 +1421,29 @@ Panel {
         }
 
         // ---- Editor.
-        Editor {
-          id: editor
+        // Built only while it is on screen. Every writable text field in Qt
+        // reads the whole clipboard each time anything on the desktop copies,
+        // to keep its canPaste current, with no cap on size and no overall
+        // deadline — so an editor kept alive behind the list would have this
+        // shell pulling arbitrary foreign data for the length of the session.
+        // Closing the panel returns to the list, which unloads it again.
+        Loader {
+          id: editorLoader
           width: parent.width
           visible: root.view === "editor"
-          fields: root.editorFields
-          originalName: root.editorOriginal
-          errorText: root.errorText
-          hidden: root.hidden
-          foreground: root.contentForeground
-          accentColor: root.accentColor
-          fontFamily: root.contentFontFamily
-          onSubmitted: function(values) { root.saveEditor(values) }
-          onCanceled: root.showList()
+          active: root.view === "editor"
+          sourceComponent: Editor {
+            width: editorLoader.width
+            fields: root.editorFields
+            originalName: root.editorOriginal
+            errorText: root.errorText
+            hidden: root.hidden
+            foreground: root.contentForeground
+            accentColor: root.accentColor
+            fontFamily: root.contentFontFamily
+            onSubmitted: function(values) { root.saveEditor(values) }
+            onCanceled: root.showList()
+          }
         }
 
         PanelSeparator {
