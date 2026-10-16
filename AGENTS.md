@@ -72,6 +72,7 @@ bin/agent.sh          ssh-add -l, bounded, with its exit status intact
 bin/results.sh        the last test of each host, remembered across restarts
 bin/recording.sh      whether omarchy is recording the screen, for hiding
 bin/setting.sh        save one of this widget's two settings through omarchy-bar
+bin/clipboard.sh      the clipboard's text for one paste, bounded, via wl-paste
 test/test.sh          everything, under plain node
 ```
 
@@ -209,10 +210,17 @@ that. Order the function so the release is unconditional.
 **A text field is a clipboard reader.** Every writable Qt `TextInput` reads
 the whole clipboard on every `QClipboard::dataChanged`, whatever its visibility
 or focus, just to keep `canPaste` current, and Qt's Wayland read has a
-per-chunk timeout but no byte cap or overall deadline. So the editor is
-`Loader`-built only while it is on screen, and each field is `readOnly` unless
-it has focus — a read-only field skips that read. Any new text field follows the
-same two rules.
+per-chunk timeout but no byte cap or overall deadline — in the shell's own
+process. So no field here is ever writable to Qt. The editor's fields are
+`readOnly: true` for good; `Editor.edit` makes the insertions and deletions by
+hand, cursor movement, selection and copy stay native, and the cursor is a
+`cursorDelegate` because Qt stops painting its own on a read-only field. A
+paste is the one read of the clipboard, and it goes through
+`bin/clipboard.sh`: on the keystroke, in its own process, capped at
+`SSHM_MAX_PASTE_BYTES` and under a deadline. The editor is also
+`Loader`-built only while it is on screen. Never set `readOnly: false`, or
+`activeFocus`-gate it, on any text field in this plugin; that was tried, and
+the focused field was still a receiver.
 
 **Keys are handled by hand, not by `PanelKeyCatcher`.** Typing filters the
 list, and the catcher's `h j k l x` bindings would make half the alphabet
@@ -279,7 +287,9 @@ widget silently fails to appear.
 
 1. Read the real file before writing. `ssh_config(5)` and the shell's own
    panels answer most "how should this behave".
-2. No new dependencies. QML + Quickshell + the shell's singletons + OpenSSH.
+2. No new dependencies. QML + Quickshell + the shell's singletons + OpenSSH,
+   and `wl-paste` for a paste only — Omarchy's own clipboard plugin depends on
+   it, and without it a paste reports that it is missing.
 3. Plugins run unsandboxed. This plugin writes two files and no others:
    `~/.ssh/config`, only through `SshConfig.upsertHost`/`removeHost`, and the
    remembered results, only through `bin/results.sh`. Its two settings live in

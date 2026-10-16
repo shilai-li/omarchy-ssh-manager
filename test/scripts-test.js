@@ -465,6 +465,23 @@ check("recording.sh answers yes, no or unknown, and nothing else", () => {
   fs.rmSync(home, { recursive: true, force: true })
 })
 
+// ---------------------------------------------------------- clipboard.sh
+//
+// Run with no compositor to reach, so the suite never reads the clipboard of
+// whoever runs it.
+
+check("clipboard.sh with no clipboard to read pastes nothing", () => {
+  const home = sandbox()
+  const result = spawnSync("bash", [path.join(BIN, "clipboard.sh")], {
+    encoding: "utf8",
+    timeout: 40000,
+    env: Object.assign({}, process.env, { HOME: home, WAYLAND_DISPLAY: "ssh-manager-test-none" })
+  })
+  eq(result.stdout, "", "no text")
+  eq(D.parseIoStatus(result.stderr).state, "empty")
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
 // ------------------------------------------------------------ setting.sh
 //
 // Only refusals are run here: an accepted value goes to omarchy-bar, which

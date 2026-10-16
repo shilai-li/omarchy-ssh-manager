@@ -147,6 +147,23 @@ BarWidget {
     if (!recordingProc.running) recordingProc.running = true
   }
 
+  // ---- Paste. The editor's fields are read-only to Qt, which is what stops
+  //      them reading the clipboard on every copy anywhere on the desktop; a
+  //      paste is read here instead, only when asked for, by a helper with a
+  //      byte ceiling and a deadline, and handed back to the editor already
+  //      reduced to one line.
+  signal clipboardRead(string text)
+
+  function readClipboard() {
+    if (!pasteProc.running) pasteProc.running = true
+  }
+
+  function applyPaste(text, statusText) {
+    var status = Diagnostics.parseIoStatus(statusText)
+    if (status.state === "ok") root.clipboardRead(Diagnostics.pastedText(text))
+    else if (status.state !== "empty") root.errorText = "Nothing was pasted: " + status.reason
+  }
+
   // The clock remembered results are aged against. It only has to be right to
   // the minute, and only while somebody is looking.
   property real now: Math.floor(Date.now() / 1000)
@@ -544,6 +561,7 @@ BarWidget {
     resultsWriteProc.running = false
     recordingProc.running = false
     settingProc.running = false
+    pasteProc.running = false
   }
 
   // A helper that never comes back must not become a process that lives as
@@ -717,6 +735,15 @@ BarWidget {
     onTriggered: root.checkRecording()
   }
 
+  Process {
+    id: pasteProc
+    command: root.script("clipboard.sh")
+    environment: root.trustedEnv
+    stdout: StdioCollector { id: pasteOut; waitForEnd: true }
+    stderr: StdioCollector { id: pasteStatus; waitForEnd: true }
+    onExited: root.applyPaste(pasteOut.text, pasteStatus.text)
+  }
+
   Deadline { proc: readProc; what: "Reading " + root.configPath }
   Deadline { proc: writeProc; what: "Writing " + root.configPath }
   Deadline { proc: statProc; what: "Checking " + root.configPath }
@@ -728,6 +755,7 @@ BarWidget {
   Deadline { proc: resultsWriteProc; what: "Saving the test results" }
   Deadline { proc: recordingProc; what: "Checking for a screen recording" }
   Deadline { proc: settingProc; what: "Saving the setting" }
+  Deadline { proc: pasteProc; what: "Reading the clipboard" }
 
   Loader {
     id: panelLoader

@@ -433,4 +433,14 @@ check("a name long enough to push the dialog's buttons off is cut", () => {
   eq(long.slice(-1), "…", "and says it was cut")
 })
 
+// ------------------------------------------- text pasted into a field
+
+check("a paste is one line, without the characters that disguise it", () => {
+  eq(D.pastedText("10.0.0.5\n"), "10.0.0.5", "a copied line loses its newline")
+  eq(D.pastedText("prod\u202edrawkcab"), "proddrawkcab", "no bidi overrides")
+  eq(D.pastedText("a\r\nb"), "a b", "no control characters")
+  const long = "~/.ssh/" + "k".repeat(300)
+  eq(D.pastedText(long), long, "and never cut: the helper already refused anything too long")
+})
+
 report("Diagnostics")

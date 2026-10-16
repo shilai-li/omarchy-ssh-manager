@@ -1443,6 +1443,16 @@ Panel {
             fontFamily: root.contentFontFamily
             onSubmitted: function(values) { root.saveEditor(values) }
             onCanceled: root.showList()
+            onPasteRequested: if (root.host) root.host.readClipboard()
+          }
+        }
+
+        Connections {
+          target: root.host
+          ignoreUnknownSignals: true
+          function onClipboardRead(text) {
+            var editor = editorLoader.item as Editor
+            if (editor) editor.paste(text)
           }
         }
 

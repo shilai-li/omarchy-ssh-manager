@@ -106,6 +106,17 @@ function plainLabel(value, max) {
   return out
 }
 
+// Text from the clipboard, made fit for one editor field.
+//
+// It was put there by another program. A field is one line, and a copied line
+// usually brings its newline along; the bidi overrides would make the field
+// show something other than what will be saved. The same characters come out
+// as from a label, with no length cut: bin/clipboard.sh already refused
+// anything longer than a field could hold.
+function pastedText(value) {
+  return plainLabel(value, Infinity)
+}
+
 // ------------------------------------------------------------- ssh -G output
 
 // `ssh -G` prints one lowercase keyword per line, and repeats a few of them
@@ -713,6 +724,7 @@ if (typeof module !== "undefined" && module.exports) {
     dotFor: dotFor,
     parseIoStatus: parseIoStatus,
     plainLabel: plainLabel,
+    pastedText: pastedText,
     parseEffective: parseEffective,
     effectiveValue: effectiveValue,
     effectiveList: effectiveList,

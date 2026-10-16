@@ -224,6 +224,15 @@ those are the five this plugin claims to manage. Everything else in a block is
 preserved exactly: `ProxyJump`, `ForwardAgent`, a keyword this plugin has
 never heard of, and every comment inside and around the entry.
 
+The fields edit the way you expect — type, `backspace` and `delete` (with `^`
+for a word), arrows, `home` / `end`, shift to select, `^a`, `^c`, `^x` — and
+`^v` pastes. What they do not do is read the clipboard on their own: a Qt text
+field normally fetches whatever another program copied, every time anything
+copies, just to know whether a paste would be possible. Here the clipboard is
+read only when you press `^v`, through `wl-paste`, cut off at 4 KiB and five
+seconds; a larger clipboard is refused rather than pasted. The cost is that
+there is no undo, and no input method or compose key inside these five fields.
+
 A new entry is written **above the first wildcard block**. ssh takes the first
 value it obtains for each keyword, so an entry appended after `Host *` would
 silently lose every keyword that block sets — the most common way a
@@ -329,6 +338,7 @@ assumption.
 | Read without a ceiling | Bytes, lines, line length, file count, `Include` depth and wall-clock all have a limit, and an `Include` cycle is not walked twice. Hitting a limit is a note in the panel saying the view is partial. |
 | Run without a deadline | Every helper is one of this plugin's scripts, started by an absolute `/usr/bin/bash` with a fixed `PATH`, in its own process group, under a deadline that kills the group — a `ProxyCommand` outliving the ssh that spawned it does not get to outlive the test. |
 | Resolve a tool through your `PATH` | `ssh`, `ssh-add`, `ssh-keygen`, `setsid` and the rest come from a fixed `/usr/bin:/bin`. Your terminal still gets your own environment when you connect. |
+| Read the clipboard behind your back | The editor's fields are read-only to Qt, which is what stops them fetching every copy made anywhere on the desktop. `^v` reads it once, in a separate process, at most 4 KiB, within five seconds. |
 | Touch the network without you | Opening the panel runs the config scan and `ssh-add -l`, and nothing else. A probe happens on a keystroke, or on a confirmation you clicked. |
 
 ---
