@@ -465,6 +465,12 @@ check("recording.sh answers yes, no or unknown, and nothing else", () => {
   fs.rmSync(home, { recursive: true, force: true })
 })
 
+check("recording.sh never runs omarchy's recorder, which is a toggle", () => {
+  const source = fs.readFileSync(path.join(BIN, "recording.sh"), "utf8")
+  const code = source.split("\n").filter((line) => !/^\s*#/.test(line)).join("\n")
+  ok(!/omarchy-capture-screenrecording/.test(code), "asking it can start a recording")
+})
+
 // ---------------------------------------------------------- clipboard.sh
 //
 // Run with no compositor to reach, so the suite never reads the clipboard of

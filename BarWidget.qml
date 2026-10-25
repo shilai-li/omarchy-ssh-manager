@@ -543,7 +543,7 @@ BarWidget {
     root.refresh()
     resultsReadProc.running = true
     root.applyStartHidden()
-    root.checkRecording()
+    if (root.hideWhileRecording) root.checkRecording()
   }
 
   // Nothing this widget started outlives it. A bar surface is torn down and

@@ -70,7 +70,7 @@ bin/effective.sh      ssh -G, plus which identity files exist and their fingerpr
 bin/probe.sh          TCP reachability and authentication, without a session
 bin/agent.sh          ssh-add -l, bounded, with its exit status intact
 bin/results.sh        the last test of each host, remembered across restarts
-bin/recording.sh      whether omarchy is recording the screen, for hiding
+bin/recording.sh      whether a screen recorder runs, for hiding
 bin/setting.sh        save one of this widget's two settings through omarchy-bar
 bin/clipboard.sh      the clipboard's text for one paste, bounded, via wl-paste
 test/test.sh          everything, under plain node

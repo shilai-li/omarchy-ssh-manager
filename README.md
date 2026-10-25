@@ -212,9 +212,9 @@ Two settings, behind the gear in the list header (or `^,`):
 | Setting | |
 |---|---|
 | Start hidden | hide every time the shell starts (off by default) |
-| Hide while recording | on while Omarchy records the screen, and locked until it stops (on by default) |
+| Hide while recording | on while the screen is being recorded (gpu-screen-recorder or wf-recorder, which Omarchy records with), and locked until it stops (on by default) |
 
-Only Omarchy's own recorder can be seen from here; a browser or meeting app
+Only those two recorders can be seen from here; a browser or meeting app
 sharing the screen cannot, which is what *Start hidden* is for.
 
 ### Adding and editing
